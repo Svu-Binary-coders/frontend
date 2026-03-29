@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { create } from "zustand";
-import { io, Socket } from "socket.io-client";
+import io from "socket.io-client";
+type Socket = ReturnType<typeof io>; // socket instance type(some methods return the socket instance itself, so we can use it as return type)
 import {
   Message,
   Contact,
@@ -8,85 +9,177 @@ import {
   ContextMenuState,
 } from "@/types/chat";
 import { SOCKET_URL, API_URL } from "@/lib/chat-helpers";
+import { getQueryClient } from "@/lib/queryClient";
+import { useAuthStore } from "@/stores/authStore";
+import api from "@/lib/axios";
+
+//  Infinite Query cache type
+interface InfinitePage {
+  messages: Message[];
+  hasMore: boolean;
+  oldestId: string | null;
+}
+
+interface InfiniteCache {
+  pages: InfinitePage[];
+  pageParams: unknown[];
+}
+
+//  Deduplicate helper
+const dedupe = (messages: Message[]): Message[] => {
+  const seen = new Set<string>();
+  return messages.filter((m) => {
+    if (!m._id || seen.has(m._id)) return false;
+    seen.add(m._id);
+    return true;
+  });
+};
+
+//  Cache updater
+// infinite query cache-এ শুধু last page (নতুন messages) update করে
+const updateMessagesCache = (
+  chatId: string | undefined,
+  updater: (old: Message[]) => Message[],
+) => {
+  if (!chatId) return;
+
+  getQueryClient().setQueryData(
+    ["messages", chatId],
+    (old: InfiniteCache | undefined) => {
+      if (!old?.pages?.length) return old;
+
+      const lastIdx = old.pages.length - 1;
+      const updatedMessages = dedupe(updater(old.pages[lastIdx].messages));
+
+      return {
+        ...old,
+        pages: old.pages.map((page, i) =>
+          i === lastIdx ? { ...page, messages: updatedMessages } : page,
+        ),
+      };
+    },
+  );
+};
+
+//  updateAllPagesCache
+// status update বা edit/delete-এর মতো সব page-এ apply হওয়া দরকার এমন কাজে
+const updateAllPagesCache = (
+  chatId: string | undefined,
+  updater: (msg: Message) => Message,
+) => {
+  if (!chatId) return;
+
+  getQueryClient().setQueryData(
+    ["messages", chatId],
+    (old: InfiniteCache | undefined) => {
+      if (!old?.pages?.length) return old;
+
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          messages: page.messages.map(updater),
+        })),
+      };
+    },
+  );
+};
+
+//  filterAllPagesCache
+// delete_me-এর মতো কাজে সব page থেকে filter করে
+const filterAllPagesCache = (
+  chatId: string | undefined,
+  predicate: (msg: Message) => boolean,
+) => {
+  if (!chatId) return;
+
+  getQueryClient().setQueryData(
+    ["messages", chatId],
+    (old: InfiniteCache | undefined) => {
+      if (!old?.pages?.length) return old;
+
+      return {
+        ...old,
+        pages: old.pages.map((page) => ({
+          ...page,
+          messages: page.messages.filter(predicate),
+        })),
+      };
+    },
+  );
+};
 
 interface NewChatPreview {
   _id: string;
   name: string;
   avatar?: string;
+  customId?: string;
 }
 
+type ActiveView =
+  | "chats"
+  | "calls"
+  | "invite"
+  | "settings"
+  | "chat-lock"
+  | "archive"
+  | "media";
+
 interface ChatStore {
-  myId: string;
-  myIdInput: string;
+  activeView: ActiveView;
   isConnected: boolean;
-
   contacts: Contact[];
-  contactsLoading: boolean;
   activeContact: Contact | null;
-
   messages: Message[];
-  msgLoading: boolean;
   msgInput: string;
   isTyping: boolean;
-
-  // ── New chat modal ────────────────────────────────────────────────────────
   showNewChat: boolean;
   newChatId: string;
   newChatLoading: boolean;
   newChatError: string;
-  newChatPreview: NewChatPreview | null;
-
-  // ── Message actions ───────────────────────────────────────────────────────
+  newChatPreview: NewChatPreview[];
   contextMenu: ContextMenuState | null;
   editingMsg: Message | null;
   replyTo: Message | null;
   forwardMsg: Message | null;
-
-  // ── Socket (non-reactive – stored for access in actions) ──────────────────
   socket: Socket | null;
-
-  // ── Internal timers ───────────────────────────────────────────────────────
+  showEmojiPicker: boolean;
   _typingTimeout: ReturnType<typeof setTimeout> | undefined;
   _previewTimeout: ReturnType<typeof setTimeout> | undefined;
 
-  // ── Simple setters ────────────────────────────────────────────────────────
-  setMyIdInput: (v: string) => void;
   setMsgInput: (v: string) => void;
   setShowNewChat: (v: boolean) => void;
   setContextMenu: (v: ContextMenuState | null) => void;
   setForwardMsg: (v: Message | null) => void;
+  setActiveView: (view: ActiveView) => void;
+  setShowEmojiPicker: (v: boolean) => void;
 
-  // ── Complex actions ───────────────────────────────────────────────────────
   initSocket: () => () => void;
-  handleConnect: () => void;
-  loadContacts: (userId: string) => Promise<void>;
-  openChat: (contact: Contact) => Promise<void>;
+  openChat: (contact: Contact | null) => void;
   sendMessage: () => void;
   handleTyping: (value: string) => void;
   handleAction: (action: string, msg: Message) => void;
   handleForward: (contactId: string) => void;
   handleNewChatIdChange: (val: string) => void;
-  createAndOpenChat: () => Promise<void>;
+  createAndOpenChat: (selectedUser: NewChatPreview) => Promise<void>;
   closeNewChat: () => void;
   openCtx: (e: React.MouseEvent, msg: Message, isMine: boolean) => void;
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
-  myId: "",
-  myIdInput: "",
+export const useChatStore = create<ChatStore>()((set, get) => ({
+  activeView: "chats" as ActiveView,
   isConnected: false,
   contacts: [],
-  contactsLoading: false,
   activeContact: null,
+  showEmojiPicker: false,
   messages: [],
-  msgLoading: false,
   msgInput: "",
   isTyping: false,
   showNewChat: false,
   newChatId: "",
   newChatLoading: false,
   newChatError: "",
-  newChatPreview: null,
+  newChatPreview: [],
   contextMenu: null,
   editingMsg: null,
   replyTo: null,
@@ -95,14 +188,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   _typingTimeout: undefined,
   _previewTimeout: undefined,
 
-  // ── Simple setters ────────────────────────────────────────────────────────
-  setMyIdInput: (v) => set({ myIdInput: v }),
   setMsgInput: (v) => set({ msgInput: v }),
   setShowNewChat: (v) => set({ showNewChat: v }),
   setContextMenu: (v) => set({ contextMenu: v }),
   setForwardMsg: (v) => set({ forwardMsg: v }),
+  setActiveView: (view: ActiveView) => set({ activeView: view }),
+  setShowEmojiPicker: (v: boolean) => set({ showEmojiPicker: v }),
 
-  // ── Socket init ───────────────────────────────────────────────────────────
+  //  Socket init
   initSocket: () => {
     const socket = io(SOCKET_URL, {
       reconnection: true,
@@ -111,20 +204,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ socket });
 
     socket.on("connect", () => {
-      const { myId } = get();
+      const myId = useAuthStore.getState().myId;
       if (myId) socket.emit("setup", myId);
+      set({ isConnected: true });
     });
 
-    // Receive message
+    socket.on("disconnect", () => {
+      set({ isConnected: false });
+    });
+
+    //  Receive message
     socket.on("receive_private_message", (data: Message) => {
       const { activeContact } = get();
+
       if (data.senderId === activeContact?._id) {
-        set((s) => ({
-          messages: [...s.messages, { ...data, status: MessageStatus.READ }],
-          contacts: s.contacts.map((c) =>
-            c._id === data.senderId ? { ...c, unreadCount: 0 } : c,
-          ),
-        }));
+        const newMsg = { ...data, status: MessageStatus.READ };
+
+        set((s) => {
+          const exists = s.messages.some((m) => m._id === data._id);
+          if (exists) return s;
+          return {
+            messages: [...s.messages, newMsg],
+            contacts: s.contacts.map((c) =>
+              c._id === data.senderId ? { ...c, unreadCount: 0 } : c,
+            ),
+          };
+        });
+
+        // last page-এ নতুন message যোগ করো
+        updateMessagesCache(activeContact.customChatId, (old) => {
+          const exists = old.some((m) => m._id === data._id);
+          if (exists) return old;
+          return [...old, newMsg];
+        });
+
         socket.emit("message_read", {
           chatRoomId: activeContact!.customChatId,
           senderId: data.senderId,
@@ -157,8 +270,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
     });
 
-    // Status acks
+    //  Status acks
     socket.on("message_delivered_ack", () => {
+      const chatId = get().activeContact?.customChatId;
+
       set((s) => ({
         messages: s.messages.map((m) =>
           m.status === MessageStatus.SENT || m.status === MessageStatus.SENDING
@@ -166,9 +281,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             : m,
         ),
       }));
+
+      // সব page-এ status update
+      updateAllPagesCache(chatId, (m) =>
+        m.status === MessageStatus.SENT || m.status === MessageStatus.SENDING
+          ? { ...m, status: MessageStatus.DELIVERED }
+          : m,
+      );
     });
 
     socket.on("message_read_ack", () => {
+      const chatId = get().activeContact?.customChatId;
+
       set((s) => ({
         messages: s.messages.map((m) =>
           m.status === MessageStatus.DELIVERED ||
@@ -177,20 +301,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             : m,
         ),
       }));
+
+      updateAllPagesCache(chatId, (m) =>
+        m.status === MessageStatus.DELIVERED || m.status === MessageStatus.SENT
+          ? { ...m, status: MessageStatus.READ }
+          : m,
+      );
     });
 
     socket.on("mark_all_read_ack", ({ chatRoomId }: { chatRoomId: string }) => {
       const { activeContact } = get();
-      if (activeContact?.customChatId === chatRoomId)
+      if (activeContact?.customChatId === chatRoomId) {
         set((s) => ({
           messages: s.messages.map((m) => ({
             ...m,
             status: MessageStatus.READ,
           })),
         }));
+
+        updateAllPagesCache(chatRoomId, (m) => ({
+          ...m,
+          status: MessageStatus.READ,
+        }));
+      }
     });
 
-    // Edit ack (other tab/device sync)
+    //  Edit ack
     socket.on(
       "message_edited_ack",
       ({
@@ -200,6 +336,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         messageId: string;
         newContent: string;
       }) => {
+        const chatId = get().activeContact?.customChatId;
+
         set((s) => ({
           messages: s.messages.map((m) =>
             m._id === messageId
@@ -207,10 +345,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               : m,
           ),
         }));
+
+        updateAllPagesCache(chatId, (m) =>
+          m._id === messageId
+            ? { ...m, content: newContent, is_edited: true }
+            : m,
+        );
       },
     );
 
-    // Delete ack
+    //  Delete ack
     socket.on(
       "message_deleted_ack",
       ({
@@ -220,6 +364,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         messageId: string;
         deleteForEveryone: boolean;
       }) => {
+        const chatId = get().activeContact?.customChatId;
+
         if (deleteForEveryone) {
           set((s) => ({
             messages: s.messages.map((m) =>
@@ -232,15 +378,51 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 : m,
             ),
           }));
+
+          updateAllPagesCache(chatId, (m) =>
+            m._id === messageId
+              ? {
+                  ...m,
+                  content: "This message was deleted",
+                  is_deleted_for_everyone: true,
+                }
+              : m,
+          );
         } else {
           set((s) => ({
             messages: s.messages.filter((m) => m._id !== messageId),
           }));
+
+          filterAllPagesCache(chatId, (m) => m._id !== messageId);
         }
       },
     );
 
-    // Sidebar last message update
+    //  Star ack
+    socket.on(
+      "message_starred_ack",
+      ({
+        messageId,
+        isImportant,
+      }: {
+        messageId: string;
+        isImportant: boolean;
+      }) => {
+        const chatId = get().activeContact?.customChatId;
+
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m._id === messageId ? { ...m, isImportant } : m,
+          ),
+        }));
+
+        updateAllPagesCache(chatId, (m) =>
+          m._id === messageId ? { ...m, isImportant } : m,
+        );
+      },
+    );
+
+    //  Sidebar last message update
     socket.on("last_message_update", ({ chatId, lastMessage }: any) => {
       set((s) => ({
         contacts: s.contacts.map((c) =>
@@ -249,7 +431,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }));
     });
 
-    // Online / offline
+    //  Online / Offline
     socket.on("user_online", ({ userId }: { userId: string }) => {
       set((s) => ({
         contacts: s.contacts.map((c) =>
@@ -274,7 +456,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }));
     });
 
-    // Typing indicators
+    //  Typing
     socket.on("show_typing", ({ senderId }: { senderId: string }) => {
       if (senderId === get().activeContact?._id) set({ isTyping: true });
     });
@@ -286,75 +468,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return () => socket.disconnect();
   },
 
-  // ── handleConnect ─────────────────────────────────────────────────────────
-  handleConnect: () => {
-    const { myIdInput, socket } = get();
-    if (!myIdInput.trim()) return;
-    const id = myIdInput.trim();
-    set({ myId: id, isConnected: true });
-    socket?.emit("setup", id);
-    get().loadContacts(id);
-  },
+  //  openChat
+  openChat: (contact: Contact | null) => {
+    const { socket, activeContact } = get();
 
-  // ── loadContacts ──────────────────────────────────────────────────────────
-  loadContacts: async (userId: string) => {
-    set({ contactsLoading: true });
-    try {
-      const res = await fetch(`${API_URL}/chats/${userId}/contacts`);
-      const data = await res.json();
-      if (data.success) {
-        set({ contacts: data.contacts });
-        const { socket } = get();
-        data.contacts.forEach((c: Contact) => {
-          socket?.emit(
-            "check_status",
-            c._id,
-            ({ online }: { online: boolean }) => {
-              set((s) => ({
-                contacts: s.contacts.map((x) =>
-                  x._id === c._id ? { ...x, isOnline: online } : x,
-                ),
-              }));
-            },
-          );
-        });
-      }
-    } catch {
-      // Demo fallback
+    if (!contact) {
       set({
-        contacts: [
-          {
-            _id: "d1",
-            name: "Rahul Das",
-            email: "",
-            lastMessage: {
-              content: "kal dekha jabe",
-              createdAt: new Date().toISOString(),
-            },
-            unreadCount: 3,
-            isOnline: true,
-          },
-          {
-            _id: "d2",
-            name: "Priya Sen",
-            email: "",
-            lastMessage: {
-              content: "ok done ✓",
-              createdAt: new Date(Date.now() - 3600000).toISOString(),
-            },
-            unreadCount: 0,
-            isOnline: false,
-          },
-        ],
+        activeContact: null,
+        messages: [],
+        editingMsg: null,
+        replyTo: null,
       });
-    } finally {
-      set({ contactsLoading: false });
+      return;
     }
-  },
 
-  // ── openChat ──────────────────────────────────────────────────────────────
-  openChat: async (contact: Contact) => {
-    const { myId, socket } = get();
+    if (activeContact?._id === contact._id) return;
+
     set({
       activeContact: contact,
       isTyping: false,
@@ -366,35 +495,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         c._id === contact._id ? { ...c, unreadCount: 0 } : c,
       ),
     });
+
     socket?.emit("mark_all_read", {
       chatRoomId: contact.customChatId,
       senderId: contact._id,
     });
-    set({ msgLoading: true });
-    try {
-      const chatId = contact.customChatId || `${myId}_${contact._id}`;
-      const res = await fetch(
-        `${API_URL}/chats/${myId}/${chatId}/${contact._id}/?limit=50`,
-      );
-      const data = await res.json();
-      if (data.success)
-        set({
-          messages: data.messages.map((m: any) => ({
-            ...m,
-            status:
-              m.senderId === myId
-                ? (m.messageStatus as MessageStatus) || MessageStatus.SENT
-                : undefined,
-          })),
-        });
-    } catch {
-      set({ messages: [] });
-    } finally {
-      set({ msgLoading: false });
-    }
   },
 
-  // ── sendMessage ───────────────────────────────────────────────────────────
+  //  sendMessage
   sendMessage: () => {
     const {
       msgInput,
@@ -402,11 +510,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       socket,
       editingMsg,
       replyTo,
-      myId,
       _typingTimeout,
     } = get();
-    if (!msgInput.trim() || !activeContact) return;
+    const myId = useAuthStore.getState().myId;
+
+    if (!msgInput.trim() || !activeContact || !myId) return;
     const content = msgInput.trim();
+    const chatId = activeContact.customChatId;
     set({ msgInput: "" });
 
     // EDIT MODE
@@ -416,19 +526,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         {
           messageId: editingMsg._id,
           newContent: content,
-          chatRoomId: activeContact.customChatId,
+          chatRoomId: chatId,
           senderId: myId,
         },
         (res: any) => {
-          console.log("Edit ack:", res);
-          console.log("editingMsg._id:", editingMsg._id);
-
-          console.log(
-            "match found:",
-            get().messages.some((m) => m._id === editingMsg._id),
-          );
-          if (res?.success)
-            console.log("content to update:", content); 
+          if (res?.success) {
             set((s) => ({
               messages: s.messages.map((m) =>
                 m._id === editingMsg._id
@@ -436,6 +538,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   : m,
               ),
             }));
+            updateAllPagesCache(chatId, (m) =>
+              m._id === editingMsg._id ? { ...m, content, is_edited: true } : m,
+            );
+          }
         },
       );
       set({ editingMsg: null });
@@ -447,38 +553,42 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     clearTimeout(_typingTimeout);
 
     const tempId = `temp_${Date.now()}`;
-    set((s) => ({
-      messages: [
-        ...s.messages,
-        {
-          _id: tempId,
-          senderId: myId,
-          content,
-          createdAt: new Date().toISOString(),
-          status: MessageStatus.SENDING,
-          replyTo: replyTo
-            ? {
-                _id: replyTo._id!,
-                content: replyTo.content,
-                senderId: replyTo.senderId,
-              }
-            : null,
-        },
-      ],
-      replyTo: null,
-    }));
+    const tempMsg: Message = {
+      _id: tempId,
+      senderId: myId,
+      content,
+      createdAt: new Date().toISOString(),
+      status: MessageStatus.SENDING,
+      replyTo: replyTo
+        ? {
+            _id: replyTo._id!,
+            content: replyTo.content,
+            senderId: replyTo.senderId,
+          }
+        : null,
+    };
+
+    set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
+    // last page-এ temp message যোগ করো
+    updateMessagesCache(chatId, (old) => [...old, tempMsg]);
 
     socket?.emit(
       "send_message",
-      { receiverId: activeContact._id, content, replyToId: replyTo?._id },
+      {
+        receiverId: activeContact._id,
+        content,
+        replyToMessageId: replyTo?._id,
+      },
       (res: any) => {
         if (res?.success) {
+          const sentMsg: Message = {
+            ...res.data,
+            senderId: myId,
+            status: MessageStatus.SENT,
+          };
+
           set((s) => ({
-            messages: s.messages.map((m) =>
-              m._id === tempId
-                ? { ...res.data, senderId: myId, status: MessageStatus.SENT }
-                : m,
-            ),
+            messages: s.messages.map((m) => (m._id === tempId ? sentMsg : m)),
             contacts: s.contacts
               .map((c) =>
                 c._id === activeContact._id
@@ -497,18 +607,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   new Date(a.lastMessage?.createdAt || 0).getTime(),
               ),
           }));
+
+          // temp → real message replace
+          updateMessagesCache(chatId, (old) =>
+            old.map((m) => (m._id === tempId ? sentMsg : m)),
+          );
         } else {
           set((s) => ({
             messages: s.messages.map((m) =>
               m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
             ),
           }));
+          updateMessagesCache(chatId, (old) =>
+            old.map((m) =>
+              m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
+            ),
+          );
         }
       },
     );
   },
 
-  // ── handleTyping ──────────────────────────────────────────────────────────
+  //  handleTyping
   handleTyping: (value: string) => {
     const { activeContact, socket, _typingTimeout } = get();
     set({ msgInput: value });
@@ -521,9 +641,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ _typingTimeout: t });
   },
 
-  // ── handleAction ──────────────────────────────────────────────────────────
+  //  handleAction
   handleAction: (action: string, msg: Message) => {
     const { socket, activeContact } = get();
+    const chatId = activeContact?.customChatId;
+
     switch (action) {
       case "reply":
         set({ replyTo: msg, editingMsg: null });
@@ -536,14 +658,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case "star":
         socket?.emit(
           "toggle_star",
-          { messageId: msg._id, chatRoomId: activeContact?.customChatId },
+          { messageId: msg._id, chatRoomId: chatId },
           (res: any) => {
-            if (res?.success)
+            if (res?.success) {
               set((s) => ({
                 messages: s.messages.map((m) =>
                   m._id === msg._id ? { ...m, isImportant: !m.isImportant } : m,
                 ),
               }));
+              updateAllPagesCache(chatId, (m) =>
+                m._id === msg._id ? { ...m, isImportant: !m.isImportant } : m,
+              );
+            }
           },
         );
         break;
@@ -559,16 +685,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case "delete_me":
         socket?.emit(
           "delete_message",
-          {
-            messageId: msg._id,
-            chatRoomId: activeContact?.customChatId,
-            deleteForEveryone: false,
-          },
+          { messageId: msg._id, chatRoomId: chatId, deleteForEveryone: false },
           (res: any) => {
-            if (res?.success)
+            if (res?.success) {
               set((s) => ({
                 messages: s.messages.filter((m) => m._id !== msg._id),
               }));
+              filterAllPagesCache(chatId, (m) => m._id !== msg._id);
+            }
           },
         );
         break;
@@ -578,12 +702,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           "delete_message",
           {
             messageId: msg._id,
-            chatRoomId: activeContact?.customChatId,
+            chatRoomId: chatId,
             deleteForEveryone: true,
             senderId: activeContact?._id,
           },
           (res: any) => {
-            if (res?.success)
+            if (res?.success) {
               set((s) => ({
                 messages: s.messages.map((m) =>
                   m._id === msg._id
@@ -595,16 +719,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                     : m,
                 ),
               }));
+              updateAllPagesCache(chatId, (m) =>
+                m._id === msg._id
+                  ? {
+                      ...m,
+                      content: "This message was deleted",
+                      is_deleted_for_everyone: true,
+                    }
+                  : m,
+              );
+            }
           },
         );
         break;
     }
   },
 
-  // ── handleForward ─────────────────────────────────────────────────────────
+  //  handleForward
   handleForward: (contactId: string) => {
-    const { forwardMsg, socket, activeContact, myId } = get();
-    if (!forwardMsg) return;
+    const { forwardMsg, socket, activeContact } = get();
+    const myId = useAuthStore.getState().myId;
+
+    if (!forwardMsg || !myId) return;
     socket?.emit(
       "forward_message",
       {
@@ -613,72 +749,86 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         content: forwardMsg.content,
       },
       (res: any) => {
-        if (res?.success && contactId === activeContact?._id)
-          set((s) => ({
-            messages: [
-              ...s.messages,
-              { ...res.data, senderId: myId, status: MessageStatus.SENT },
-            ],
-          }));
+        if (res?.success && contactId === activeContact?._id) {
+          const fwdMsg: Message = {
+            ...res.data,
+            senderId: myId,
+            status: MessageStatus.SENT,
+          };
+          set((s) => ({ messages: [...s.messages, fwdMsg] }));
+          if (activeContact?.customChatId)
+            updateMessagesCache(activeContact.customChatId, (old) => [
+              ...old,
+              fwdMsg,
+            ]);
+        }
       },
     );
     set({ forwardMsg: null });
   },
 
-  // ── handleNewChatIdChange ─────────────────────────────────────────────────
+  //  handleNewChatIdChange
   handleNewChatIdChange: (val: string) => {
-    const { myId, _previewTimeout } = get();
-    set({ newChatId: val, newChatPreview: null, newChatError: "" });
+    const { _previewTimeout } = get();
+    const myId = useAuthStore.getState().myId;
+
+    set({ newChatId: val, newChatPreview: [], newChatError: "" });
     clearTimeout(_previewTimeout);
-    if (val.trim().length < 20) return;
+
+    if (val.trim().length < 2) return;
+
     if (val.trim() === myId) {
-      set({ newChatError: "cannot chat with yourself" });
+      set({ newChatError: "Cannot chat with yourself" });
       return;
     }
+
     const t = setTimeout(async () => {
       set({ newChatLoading: true });
       try {
-        const res = await fetch(`${API_URL}/chats/user/${val.trim()}`);
-        const data = await res.json();
-        if (data.success)
+        const res = await api(`${API_URL}/chats/search?q=${val.trim()}`);
+        const data = res.data;
+        if (data.success && data.users.length > 0) {
           set({
-            newChatPreview: {
-              _id: data.user._id,
-              name: data.user.userName,
-              avatar: data.user.profilePicture,
-            },
+            newChatPreview: data.users.map((user: any) => ({
+              _id: user._id,
+              name: user.userName,
+              avatar: user.profilePicture,
+              customId: user.customId,
+            })),
           });
-        else set({ newChatError: "User not found" });
+        } else {
+          set({ newChatError: "User not found" });
+        }
       } catch {
         set({ newChatError: "User not found" });
       } finally {
         set({ newChatLoading: false });
       }
     }, 500);
+
     set({ _previewTimeout: t });
   },
 
-  // ── createAndOpenChat ─────────────────────────────────────────────────────
-  createAndOpenChat: async () => {
-    const { newChatPreview, myId, socket } = get();
-    if (!newChatPreview) return;
+  //  createAndOpenChat
+  createAndOpenChat: async (selectedUser: NewChatPreview) => {
+    const { socket } = get();
+    const myId = useAuthStore.getState().myId;
+
+    if (!selectedUser || !myId) return;
     set({ newChatLoading: true });
     try {
       const res = await fetch(`${API_URL}/chats/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderId: myId,
-          receiverId: newChatPreview._id,
-        }),
+        body: JSON.stringify({ senderId: myId, receiverId: selectedUser._id }),
       });
       const data = await res.json();
       if (data.success) {
         const nc: Contact = {
-          _id: newChatPreview._id,
-          name: newChatPreview.name,
+          _id: selectedUser._id,
+          name: selectedUser.name,
           email: "",
-          avatar: newChatPreview.avatar,
+          avatar: selectedUser.avatar,
           customChatId: data.chat.chatRoomId,
           unreadCount: 0,
           isOnline: false,
@@ -711,18 +861,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  // ── closeNewChat ──────────────────────────────────────────────────────────
+  //  closeNewChat
   closeNewChat: () => {
     clearTimeout(get()._previewTimeout);
     set({
       showNewChat: false,
       newChatId: "",
-      newChatPreview: null,
+      newChatPreview: [],
       newChatError: "",
     });
   },
 
-  // ── openCtx ───────────────────────────────────────────────────────────────
+  //  openCtx
   openCtx: (e: React.MouseEvent, msg: Message, isMine: boolean) => {
     e.preventDefault();
     e.stopPropagation();

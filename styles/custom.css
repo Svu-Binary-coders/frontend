@@ -1,0 +1,22 @@
+/* globals.css */
+body {
+  font-family: var(--font-poppins), sans-serif;
+}
+
+.compact-ui-active {
+  --message-gap: 2px;
+  --bubble-padding: 4px 10px;
+}
+
+
+/* globals.css */
+
+/* inherit ব্যবহার করলে প্যারেন্ট ডিভ-এর ফন্ট সাইজ সবাই মেনে চলবে */
+body, button, input, textarea, p, span {
+  font-size: inherit; 
+}
+
+/* যদি আপনি চান হেডিংগুলো সব সময় একটু বড় থাকবে */
+h1 { font-size: 1.5em; } /* em মানে হলো বেস সাইজের ১.৫ গুণ */
+h2 { font-size: 1.2em; }
+small { font-size: 0.8em; }
