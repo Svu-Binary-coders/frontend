@@ -31,7 +31,7 @@ export default function LoginPage() {
       });
 
       if (data.success) {
-        router.push("/chat");
+        router.push("/chat?page=chats");
       } else {
         toast.error(data.message || "Login failed");
       }

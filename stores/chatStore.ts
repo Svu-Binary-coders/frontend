@@ -36,7 +36,7 @@ const dedupe = (messages: Message[]): Message[] => {
 };
 
 //  Cache updater
-// infinite query cache-এ শুধু last page (নতুন messages) update করে
+// only last page update
 const updateMessagesCache = (
   chatId: string | undefined,
   updater: (old: Message[]) => Message[],
@@ -62,7 +62,7 @@ const updateMessagesCache = (
 };
 
 //  updateAllPagesCache
-// status update বা edit/delete-এর মতো সব page-এ apply হওয়া দরকার এমন কাজে
+// all page update like status update, edit, delete (for everyone) etc
 const updateAllPagesCache = (
   chatId: string | undefined,
   updater: (msg: Message) => Message,
@@ -86,7 +86,7 @@ const updateAllPagesCache = (
 };
 
 //  filterAllPagesCache
-// delete_me-এর মতো কাজে সব page থেকে filter করে
+// delete message (for me) filter like, remove the message from all pages
 const filterAllPagesCache = (
   chatId: string | undefined,
   predicate: (msg: Message) => boolean,
@@ -231,7 +231,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           };
         });
 
-        // last page-এ নতুন message যোগ করো
+        // last page -> new message add + status update emit
         updateMessagesCache(activeContact.customChatId, (old) => {
           const exists = old.some((m) => m._id === data._id);
           if (exists) return old;

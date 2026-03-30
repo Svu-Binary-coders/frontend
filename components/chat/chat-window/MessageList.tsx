@@ -16,7 +16,6 @@ export default function MessageList() {
   const { messages, activeContact } = useChatStore();
   const { wallpaper, compactMode } = useAppearanceStore();
   const { myId } = useAuthStore();
-  const prevLengthRef = useRef(0);
 
   const {
     isLoading: msgLoading,
@@ -28,9 +27,17 @@ export default function MessageList() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef<number>(0);
+  const prevLengthRef = useRef(0);
   const isFirstLoad = useRef(true);
+  const isFetchingRef = useRef(false); // ← double fetch guard
 
-  // chat switch -> load messages -> scroll to bottom
+  // ── chat switch → reset ──
+  useEffect(() => {
+    isFirstLoad.current = true;
+    prevLengthRef.current = 0;
+  }, [activeContact?._id]);
+
+  // ── প্রথম load → নিচে jump ──
   useEffect(() => {
     if (messages.length && isFirstLoad.current) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
@@ -38,11 +45,7 @@ export default function MessageList() {
     }
   }, [messages.length]);
 
-  // chat switch -> load first page of messages -> scroll to bottom
-  useEffect(() => {
-    isFirstLoad.current = true;
-  }, [activeContact?._id]);
-
+  // ── socket নতুন message → near bottom হলে scroll ──
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -51,7 +54,7 @@ export default function MessageList() {
     const added = newLength - prevLengthRef.current;
     prevLengthRef.current = newLength;
 
-    // if new messages added at the bottom and it's not the first load, then scroll to bottom
+    // page fetch-এ অনেক আসে, socket-এ ১টা আসে
     if (added === 1 && !isFirstLoad.current) {
       const isNearBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight <
@@ -62,7 +65,7 @@ export default function MessageList() {
     }
   }, [messages]);
 
-  // fetching next page -> scroll to previous position (only if messages added at the top)
+  // ── পুরনো page load শেষ → scroll position restore ──
   useEffect(() => {
     if (!isFetchingNextPage) {
       const container = scrollContainerRef.current;
@@ -73,18 +76,26 @@ export default function MessageList() {
     }
   }, [isFetchingNextPage]);
 
+  // ── উপরে scroll → fetch, double call guard ──
   const handleScroll = useCallback(() => {
-    // scroll event -> if near top -> fetch next page
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    if (container.scrollTop < 80 && hasNextPage && !isFetchingNextPage) {
+    if (
+      container.scrollTop < 80 &&
+      hasNextPage &&
+      !isFetchingNextPage &&
+      !isFetchingRef.current // ← guard
+    ) {
+      isFetchingRef.current = true;
       prevScrollHeightRef.current = container.scrollHeight;
-      fetchNextPage();
+      fetchNextPage().finally(() => {
+        isFetchingRef.current = false; // ← fetch শেষে reset
+      });
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  //  Wallpaper
+  // ── Wallpaper ──
   const wallpaperBg =
     wallpaper === "gradient1"
       ? "bg-gradient-to-br from-sky-100 to-blue-50 dark:from-sky-900 dark:to-slate-900"
@@ -109,7 +120,7 @@ export default function MessageList() {
           }
         : {};
 
-  //  Initial loading
+  // ── Initial loading ──
   if (msgLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-white dark:bg-[#0b141a]">
@@ -118,7 +129,7 @@ export default function MessageList() {
     );
   }
 
-  //  Empty state
+  // ── Empty state ──
   if (!messages.length) {
     return (
       <div
@@ -153,14 +164,14 @@ export default function MessageList() {
       )}
       style={wallpaperStyle}
     >
-      {/*  উপরে fetch হচ্ছে → spinner  */}
+      {/* উপরে fetch হচ্ছে → spinner */}
       {isFetchingNextPage && (
         <div className="flex justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
         </div>
       )}
 
-      {/* if end of the message list */}
+      {/* সব message load শেষ */}
       {!hasNextPage && messages.length > 0 && (
         <p className="text-center text-xs text-slate-400 dark:text-slate-600 py-3">
           Beginning of conversation
@@ -188,7 +199,6 @@ export default function MessageList() {
             </div>
           </div>
         ))}
-
         <TypingIndicator />
         <div ref={bottomRef} />
       </div>
