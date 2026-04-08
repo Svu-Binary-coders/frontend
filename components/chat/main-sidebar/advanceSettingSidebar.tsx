@@ -15,8 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useChatStore } from "@/stores/chatStore";
-import { useRouter, useSearchParams } from "next/navigation"; // রাউটিং হুক ইম্পোর্ট
+import { useRouter, useSearchParams } from "next/navigation";
 
 const NAV_ITEMS = [
   { icon: MessageSquare, label: "Chats", view: "chats" },
@@ -34,13 +33,11 @@ export default function AdvanceSettingsSidebar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // ইউআরএল থেকে বর্তমান পেজ রিড করা (ডিফল্ট 'chats')
   const activePage = searchParams.get("page") || "chats";
 
   // নেভিগেশন হ্যান্ডলার
   const handleNavigation = (view: string) => {
     if (view === "settings") {
-      // সেটিংসের ক্ষেত্রে ডিফল্ট সাব-পেজ প্রোফাইল সেট করে দেওয়া ভালো
       router.push("/chat?page=settings&subPage=profile");
     } else {
       router.push(`/chat?page=${view}`);
@@ -61,7 +58,7 @@ export default function AdvanceSettingsSidebar() {
             <Tooltip key={label}>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => handleNavigation(view)} // রাউটার কল
+                  onClick={() => handleNavigation(view)}
                   className={cn(
                     "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150",
                     activePage === view
@@ -88,7 +85,7 @@ export default function AdvanceSettingsSidebar() {
             <Tooltip key={label}>
               <TooltipTrigger asChild>
                 <button
-                  onClick={() => handleNavigation(view)} // রাউটার কল
+                  onClick={() => handleNavigation(view)} 
                   className={cn(
                     "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150",
                     activePage === view

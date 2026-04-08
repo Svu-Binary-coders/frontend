@@ -162,11 +162,11 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-5 leading-relaxed">
-          By continue you agree our{" "}
+          By continue you agree our
           <Link href="/terms" className="text-slate-500 hover:underline">
             term and condition
-          </Link>{" "}
-          and{" "}
+          </Link>
+          and
           <Link href="/privacy" className="text-slate-500 hover:underline">
             privacy policy
           </Link>
@@ -174,7 +174,7 @@ export default function LoginPage() {
       </div>
 
       <p className="text-sm text-slate-500 mt-6">
-        Don&apos;t have an account?{" "}
+        Don&apos;t have an account?
         <Link
           href="/signup"
           className="text-sky-500 font-semibold hover:text-sky-600 transition-colors"

@@ -4,7 +4,7 @@ import {
   Reply,
   Copy,
   Star,
-  StarOff, // ──> 🛠️ নতুন আইকন ইমপোর্ট করা হলো <──
+  StarOff, 
   Forward,
   Pencil,
   Trash2,
@@ -66,7 +66,6 @@ export default function ContextMenu() {
       className="w-52 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-600 overflow-hidden py-1 animate-in fade-in slide-in-from-top-2 duration-150"
     >
       {actions.map(({ id, label, icon: Icon, danger }, i) => {
-        // ──> 🛠️ ডাইনামিক Star/Unstar লজিক <──
         const isStarAction = id === "star";
         const displayLabel = isStarAction
           ? msg.isImportant
@@ -98,9 +97,9 @@ export default function ContextMenu() {
           >
             <DisplayIcon
               className={cn(
-                "h-3.5 w-3.5 flex-shrink-0",
+                "h-3.5 w-3.5 shrink-0",
                 isStarAction && !msg.isImportant && "text-amber-500",
-                isStarAction && msg.isImportant && "text-slate-400", 
+                isStarAction && msg.isImportant && "text-slate-400",
               )}
             />
             {displayLabel}

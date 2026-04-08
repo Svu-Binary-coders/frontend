@@ -45,7 +45,7 @@ export default function ForwardModal() {
             >
               <Avatar className="h-8 w-8 border border-slate-100 dark:border-slate-700">
                 <AvatarImage src={c.avatar} />
-                <AvatarFallback className="bg-gradient-to-br from-sky-400 to-blue-600 text-white text-xs font-semibold">
+                <AvatarFallback className="bg-linear-to-br from-sky-400 to-blue-600 text-white text-xs font-semibold">
                   {c.name.slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>

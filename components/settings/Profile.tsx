@@ -33,7 +33,7 @@ import {
 import { IMyDetails } from "@/interface/auth.interface";
 import ImageViewerModal from "../profile/ImageViewerModal";
 
-// ── Helper Function for Reading File ───────────────────
+//  Helper Function for Reading File
 function readFile(file: File) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -42,7 +42,7 @@ function readFile(file: File) {
   });
 }
 
-// ── API calls ──────────────────────────────────────────
+//  API calls
 
 async function updateProfile(data: {
   userName?: string;
@@ -67,7 +67,7 @@ async function deleteAvatar() {
   return res.data;
 }
 
-// ── Inline editable field ──────────────────────────────
+//  Inline editable field
 
 function EditableField({
   label,
@@ -141,7 +141,7 @@ function EditableField({
   );
 }
 
-// ── Avatar upload zone (With Cropper) ──────────────────
+//  Avatar upload zone (With Cropper)
 
 function AvatarUploader({
   src,
@@ -231,7 +231,7 @@ function AvatarUploader({
         <div className="relative">
           <Avatar className="h-28 w-28 md:h-32 md:w-32 ring-4 ring-white shadow-xl">
             <AvatarImage src={src} />
-            <AvatarFallback className="bg-gradient-to-br from-sky-400 to-blue-600 text-3xl font-bold text-white">
+            <AvatarFallback className="bg-linear-to-br from-sky-400 to-blue-600 text-3xl font-bold text-white">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -361,7 +361,7 @@ function AvatarUploader({
     </>
   );
 }
-// ── Main Component ─────────────────────────────────────
+//  Main Component
 
 export default function Profile() {
   const { myDetails, setMyDetails } = useAuthStore();
@@ -370,11 +370,11 @@ export default function Profile() {
 
   const router = useRouter();
 
-  const gopath=(path:string)=>{
-    router.push(path)
-  }
+  const gopath = (path: string) => {
+    router.push(path);
+  };
 
-  // ── Mutations ──
+  //  Mutations
   const updateMutation = useMutation({
     mutationFn: updateProfile,
     onSuccess: (data) => {
@@ -436,8 +436,8 @@ export default function Profile() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* ── Hero card ── */}
-      <div className="relative bg-gradient-to-br from-sky-50 to-blue-50 rounded-2xl border border-sky-100 p-6 md:p-8 overflow-hidden">
+      {/*  Hero card  */}
+      <div className="relative bg-linear-to-br from-sky-50 to-blue-50 rounded-2xl border border-sky-100 p-6 md:p-8 overflow-hidden">
         <div className="absolute top-0 right-0 opacity-[0.07]">
           <User className="h-48 w-48 -translate-y-8 translate-x-8" />
         </div>
@@ -476,7 +476,7 @@ export default function Profile() {
               </span>
               <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-white/80 border border-slate-100 px-2.5 py-1 rounded-full">
                 <Calendar className="h-3 w-3" />
-                Joined{" "}
+                Joined
                 {myDetails?.createdAt
                   ? new Date(myDetails.createdAt).toLocaleDateString("en-US", {
                       month: "short",
@@ -509,7 +509,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* ── Personal info ── */}
+      {/*  Personal info  */}
       <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
         <div className="flex items-center gap-2 pb-1">
           <User className="h-4 w-4 text-sky-500" />

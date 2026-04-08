@@ -15,11 +15,26 @@ export interface Contact {
   unreadCount?: number;
   isOnline?: boolean;
   customChatId?: string;
+  isPinned?: boolean;
+  isFavorite?: boolean;
 }
+export interface Attachment {
+  url: string;
+  type: "image" | "video" | "audio" | "file";
+  name: string;
+  size: number;
+  mimeType: string;
+  publicId?: string;
+  path?: string;
+}
+
 
 export interface Message {
   _id?: string;
   senderId: string;
+  isTemp?: boolean;
+  uploadProgress?: number;
+  attachments?: Attachment[];
   content: string;
   createdAt?: string;
   messageStatus?: MessageStatus;
@@ -35,3 +50,5 @@ export interface ContextMenuState {
   isMine: boolean;
   position: { x: number; y: number; flip: boolean };
 }
+
+export type StorageProvider="cloudinary" | "supabase";

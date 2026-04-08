@@ -54,7 +54,7 @@ async function deleteAccount(password: string) {
   return res.data;
 }
 
-// ── Sub-components ─────────────────────────────────────
+//  Sub-components
 
 function PasswordInput({
   label,
@@ -322,7 +322,7 @@ function EmailUpdateModal({ currentEmail }: { currentEmail: string }) {
   );
 }
 
-// ── Main ───────────────────────────────────────────────
+//  Main
 
 export default function Accounts() {
   const mydetalis = useAuthStore((state) => state.myDetails);
@@ -368,7 +368,7 @@ export default function Accounts() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* ── Email ── */}
+      {/*  Email  */}
       <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-4">
         <div className="flex items-center gap-2 pb-1">
           <Mail className="h-4 w-4 text-sky-500" />
@@ -387,7 +387,7 @@ export default function Accounts() {
         </div>
       </div>
 
-      {/* ── Password ── */}
+      {/*  Password  */}
       <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-5">
         <div className="flex items-center gap-2 pb-1">
           <Lock className="h-4 w-4 text-emerald-500" />
@@ -443,7 +443,7 @@ export default function Accounts() {
         </Button>
       </div>
 
-      {/* ── Danger zone ── */}
+      {/*  Danger zone  */}
       <div className="bg-white rounded-2xl border border-rose-100 p-6 space-y-4">
         <div className="flex items-center gap-2 pb-1">
           <AlertTriangle className="h-4 w-4 text-rose-500" />

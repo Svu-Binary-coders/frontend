@@ -15,11 +15,11 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation"; // রাউটার ইম্পোর্ট
+import { useRouter } from "next/navigation";
 
 import Profile from "../settings/Profile";
 import { Notifications } from "../settings/Notifications";
-import { Privacy } from "../settings/Privacy";
+import Privacy from "../settings/Privacy";
 import AppearanceSettings from "../settings/Appearance";
 import { Sequrity } from "../settings/Security";
 import { DataAndStorage } from "../settings/DataAndStorage";
@@ -66,7 +66,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "help", label: "Help & Support", icon: HelpCircle },
 ];
 
-// ── Settings Content Area ──
+//  Settings Content Area
 function SettingsContent({
   section,
   onMobileBack,
@@ -134,7 +134,7 @@ function SettingsContent({
   );
 }
 
-// ── Main Settings View ──
+//  Main Settings View
 export default function SettingsView({
   activeSubPage,
   onBackToApp,
@@ -181,7 +181,7 @@ export default function SettingsView({
 
   return (
     <div className="flex h-full w-full bg-white dark:bg-slate-950 overflow-hidden animate-in fade-in duration-500">
-      {/* ── Settings Sidebar ── */}
+      {/*  Settings Sidebar  */}
       <div
         className={cn(
           "flex flex-col w-full md:w-[320px] md:min-w-[320px] border-r border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 transition-all",
@@ -244,7 +244,7 @@ export default function SettingsView({
           </nav>
 
           {/* Upgrade Card */}
-          <div className="mt-8 mx-2 p-5 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 dark:from-slate-900/80 dark:to-slate-950 border border-slate-800 shadow-xl relative overflow-hidden group">
+          <div className="mt-8 mx-2 p-5 rounded-2xl bg-linear-to-br from-slate-900 to-slate-800 dark:from-slate-900/80 dark:to-slate-950 border border-slate-800 shadow-xl relative overflow-hidden group">
             <div className="absolute -right-4 -top-4 opacity-10 group-hover:rotate-12 transition-transform duration-500">
               <Crown className="h-20 w-20 text-sky-400" />
             </div>
@@ -264,7 +264,7 @@ export default function SettingsView({
         </div>
       </div>
 
-      {/* ── Settings Content Area ── */}
+      {/*  Settings Content Area  */}
       <div
         className={cn(
           "flex-1 overflow-hidden bg-slate-50 dark:bg-[#0b141a] md:bg-slate-50/30",

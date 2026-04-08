@@ -54,7 +54,7 @@ const dummySessions: Session[] = [
   },
 ];
 
-// ── Device icon ──
+//  Device icon
 const DeviceIcon = ({ device }: { device: string }) => {
   if (
     device.toLowerCase().includes("iphone") ||
@@ -72,7 +72,7 @@ const DeviceIcon = ({ device }: { device: string }) => {
   return <Globe className="h-5 w-5 text-sky-500" />;
 };
 
-// ── Time since ──
+//  Time since
 const timeSince = (dateStr: string): string => {
   const diff = Date.now() - new Date(dateStr).getTime();
   const h = Math.floor(diff / 3600000);
@@ -82,7 +82,7 @@ const timeSince = (dateStr: string): string => {
   return "just now";
 };
 
-// ── Single Session Card ──
+//  Single Session Card
 const SessionCard = ({
   session,
   onDelete,
@@ -172,7 +172,7 @@ const SessionCard = ({
   );
 };
 
-// ── Main Component ──
+//  Main Component
 export default function SessionList() {
   const [sessions, setSessions] = useState<Session[]>(dummySessions);
 

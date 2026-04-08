@@ -15,14 +15,3 @@ export interface IMyDetails {
   createdAt: Date;
 }
 
-type NotificationOption = "on" | "off";
-
-export interface INotification {
-  userId: string;
-  NotificationOptions: {
-    pushNotificationToken:NotificationOption;
-    camaraAccess:NotificationOption ;
-    microphoneAccess:NotificationOption;
-    
-  };
-}

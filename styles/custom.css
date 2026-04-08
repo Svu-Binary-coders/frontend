@@ -1,4 +1,3 @@
-/* globals.css */
 body {
   font-family: var(--font-poppins), sans-serif;
 }
@@ -9,14 +8,35 @@ body {
 }
 
 
-/* globals.css */
-
-/* inherit ব্যবহার করলে প্যারেন্ট ডিভ-এর ফন্ট সাইজ সবাই মেনে চলবে */
 body, button, input, textarea, p, span {
   font-size: inherit; 
 }
 
-/* যদি আপনি চান হেডিংগুলো সব সময় একটু বড় থাকবে */
-h1 { font-size: 1.5em; } /* em মানে হলো বেস সাইজের ১.৫ গুণ */
+h1 { font-size: 1.5em; }
 h2 { font-size: 1.2em; }
 small { font-size: 0.8em; }
+
+/* Custom scrollbar styles */
+/* Horizontal scrollbar */
+::-webkit-scrollbar {
+  height: 5px;
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* Vertical scrollbar */
+::-webkit-scrollbar-vertical {
+  width: 2px;
+}
