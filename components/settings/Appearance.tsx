@@ -67,7 +67,7 @@ function SettingRow({
           </p>
         )}
       </div>
-      <div className="flex-shrink-0">{control}</div>
+      <div className="shrink-0">{control}</div>
     </div>
   );
 }
@@ -138,17 +138,17 @@ const WALLPAPERS = [
   },
   {
     value: "gradient1",
-    bg: "bg-gradient-to-br from-sky-100 to-blue-50 dark:from-sky-900/40 dark:to-blue-900/20",
+    bg: "bg-linear-to-br from-sky-100 to-blue-50 dark:from-sky-900/40 dark:to-blue-900/20",
     label: "Ocean",
   },
   {
     value: "gradient2",
-    bg: "bg-gradient-to-br from-rose-100 to-pink-50 dark:from-rose-900/40 dark:to-pink-900/20",
+    bg: "bg-linear-to-br from-rose-100 to-pink-50 dark:from-rose-900/40 dark:to-pink-900/20",
     label: "Rose",
   },
   {
     value: "gradient3",
-    bg: "bg-gradient-to-br from-emerald-100 to-teal-50 dark:from-emerald-900/40 dark:to-teal-900/20",
+    bg: "bg-linear-to-br from-emerald-100 to-teal-50 dark:from-emerald-900/40 dark:to-teal-900/20",
     label: "Mint",
   },
 ];
@@ -191,7 +191,7 @@ export default function AppearanceContent() {
 
   return (
     <div className="space-y-2 pb-6">
-      {/* ── Theme ── */}
+      {/*  Theme  */}
       <SectionHeading icon={Paintbrush} label="Theme" />
       <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 px-4 shadow-sm">
         <SettingRow
@@ -221,7 +221,7 @@ export default function AppearanceContent() {
         />
       </div>
 
-      {/* ── Typography ── */}
+      {/*  Typography  */}
       <SectionHeading icon={Type} label="Typography" />
       <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 px-4 shadow-sm">
         <SettingRow
@@ -312,7 +312,7 @@ export default function AppearanceContent() {
         />
       </div>
 
-      {/* ── Bubble Style ── */}
+      {/*  Bubble Style  */}
       <SectionHeading icon={MessageSquare} label="Chat Bubble Style" />
       <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 px-4 py-4 shadow-sm">
         <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
@@ -346,7 +346,7 @@ export default function AppearanceContent() {
         </div>
       </div>
 
-      {/* ── Wallpaper ── */}
+      {/*  Wallpaper  */}
       <SectionHeading icon={Layers} label="Chat Wallpaper" />
       <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 px-4 py-4 shadow-sm">
         <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
@@ -404,7 +404,7 @@ export default function AppearanceContent() {
         </div>
       </div>
 
-      {/* ── Live Preview ── */}
+      {/*  Live Preview  */}
       <SectionHeading icon={AlignLeft} label="Preview" />
       <div className="bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
         <div

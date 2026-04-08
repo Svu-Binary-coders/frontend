@@ -75,7 +75,7 @@ export default function NewChatModal() {
                 >
                   <Avatar className="h-10 w-10 border border-sky-200 dark:border-sky-800">
                     <AvatarImage src={user.avatar} />
-                    <AvatarFallback className="bg-gradient-to-br from-sky-400 to-blue-600 text-white text-sm font-semibold">
+                    <AvatarFallback className="bg-linear-to-br from-sky-400 to-blue-600 text-white text-sm font-semibold">
                       {user.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>

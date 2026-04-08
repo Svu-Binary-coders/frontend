@@ -31,13 +31,13 @@ export default function MessageList() {
   const isFirstLoad = useRef(true);
   const isFetchingRef = useRef(false); // ← double fetch guard
 
-  // ── chat switch → reset ──
+  //  chat switch → reset
   useEffect(() => {
     isFirstLoad.current = true;
     prevLengthRef.current = 0;
   }, [activeContact?._id]);
 
-  // ── প্রথম load → নিচে jump ──
+  //  প্রথম load → নিচে jump
   useEffect(() => {
     if (messages.length && isFirstLoad.current) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
@@ -45,7 +45,7 @@ export default function MessageList() {
     }
   }, [messages.length]);
 
-  // ── socket নতুন message → near bottom হলে scroll ──
+  //  socket নতুন message → near bottom হলে scroll
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -65,7 +65,7 @@ export default function MessageList() {
     }
   }, [messages]);
 
-  // ── পুরনো page load শেষ → scroll position restore ──
+  //  পুরনো page load শেষ → scroll position restore
   useEffect(() => {
     if (!isFetchingNextPage) {
       const container = scrollContainerRef.current;
@@ -76,7 +76,7 @@ export default function MessageList() {
     }
   }, [isFetchingNextPage]);
 
-  // ── উপরে scroll → fetch, double call guard ──
+  //  উপরে scroll → fetch, double call guard
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
@@ -95,14 +95,14 @@ export default function MessageList() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // ── Wallpaper ──
+  //  Wallpaper
   const wallpaperBg =
     wallpaper === "gradient1"
-      ? "bg-gradient-to-br from-sky-100 to-blue-50 dark:from-sky-900 dark:to-slate-900"
+      ? "bg-linear-to-br from-sky-100 to-blue-50 dark:from-sky-900 dark:to-slate-900"
       : wallpaper === "gradient2"
-        ? "bg-gradient-to-br from-rose-100 to-pink-50 dark:from-rose-900 dark:to-slate-900"
+        ? "bg-linear-to-br from-rose-100 to-pink-50 dark:from-rose-900 dark:to-slate-900"
         : wallpaper === "gradient3"
-          ? "bg-gradient-to-br from-emerald-100 to-teal-50 dark:from-emerald-900 dark:to-slate-900"
+          ? "bg-linear-to-br from-emerald-100 to-teal-50 dark:from-emerald-900 dark:to-slate-900"
           : "bg-white dark:bg-[#0b141a]";
 
   const wallpaperStyle: React.CSSProperties =
@@ -120,7 +120,7 @@ export default function MessageList() {
           }
         : {};
 
-  // ── Initial loading ──
+  //  Initial loading
   if (msgLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-white dark:bg-[#0b141a]">
@@ -129,7 +129,7 @@ export default function MessageList() {
     );
   }
 
-  // ── Empty state ──
+  //  Empty state
   if (!messages.length) {
     return (
       <div
@@ -164,14 +164,12 @@ export default function MessageList() {
       )}
       style={wallpaperStyle}
     >
-      {/* উপরে fetch হচ্ছে → spinner */}
       {isFetchingNextPage && (
         <div className="flex justify-center py-3">
           <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
         </div>
       )}
 
-      {/* সব message load শেষ */}
       {!hasNextPage && messages.length > 0 && (
         <p className="text-center text-xs text-slate-400 dark:text-slate-600 py-3">
           Beginning of conversation

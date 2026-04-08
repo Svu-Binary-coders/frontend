@@ -35,7 +35,6 @@ export const useContacts = (userId: string) => {
       );
     });
 
-    // Zustand এ sync
     useChatStore.setState({ contacts: query.data });
   }, [query.data]);
 

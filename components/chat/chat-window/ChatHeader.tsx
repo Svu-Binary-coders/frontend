@@ -24,10 +24,10 @@ export default function ChatHeader({
   };
 
   return (
-    <header className="flex items-center gap-3 px-5 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 flex-shrink-0 h-[65px]">
+    <header className="flex items-center gap-3 px-5 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 shrink-0 h-[65px]">
       <button
         onClick={goBack}
-        className="md:hidden h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center flex-shrink-0"
+        className="md:hidden h-8 w-8 rounded-full hover:bg-slate-100 flex items-center justify-center shrink-0"
       >
         <ArrowLeft className="h-5 w-5 text-slate-600" />
       </button>
@@ -36,10 +36,10 @@ export default function ChatHeader({
         onClick={onProfileClick}
         className="flex items-center gap-3 flex-1 min-w-0 text-left"
       >
-        <div className="relative flex-shrink-0">
+        <div className="relative shrink-0">
           <Avatar className="h-10 w-10">
             <AvatarImage src={activeContact.avatar} />
-            <AvatarFallback className="bg-gradient-to-br from-sky-400 to-blue-600 text-white dark:bg-slate-900 dark:text-slate-200 text-sm font-semibold">
+            <AvatarFallback className="bg-linear-to-br from-sky-400 to-blue-600 text-white dark:bg-slate-900 dark:text-slate-200 text-sm font-semibold">
               {initials}
             </AvatarFallback>
           </Avatar>

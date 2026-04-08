@@ -15,7 +15,6 @@ import InviteView from "../views/InviteView";
 import SettingsView from "../views/settingsView";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 
-
 export default function ChatLayout() {
   useKeyboardShortcuts();
   const searchParams = useSearchParams();
@@ -68,13 +67,13 @@ export default function ChatLayout() {
           <>
             <div
               className={cn(
-                "flex flex-shrink-0 border-r border-slate-100 dark:border-slate-800",
+                "flex shrink-0 border-r border-slate-100 dark:border-slate-800",
                 activeContact
                   ? "hidden md:flex"
                   : "flex w-full md:w-[320px] md:min-w-[320px]",
               )}
             >
-              <div className="flex flex-col w-full h-full bg-white dark:bg-slate-950">
+              <div className="flex flex-col h-full bg-white dark:bg-slate-950 shrink-0 w-[320px]">
                 {renderBodyLeftPanel(activeView)}
               </div>
             </div>
@@ -82,7 +81,7 @@ export default function ChatLayout() {
             <div
               className={cn(
                 "flex-1 flex flex-col overflow-hidden min-w-0 bg-slate-50 dark:bg-[#0b141a]",
-                activeContact ? "flex" : "hidden md:flex",
+                activeContact ? "flex flex-1 min-w-0" : "hidden md:flex",
               )}
             >
               <ChatWindow />

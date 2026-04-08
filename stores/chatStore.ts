@@ -146,13 +146,17 @@ interface ChatStore {
   showEmojiPicker: boolean;
   _typingTimeout: ReturnType<typeof setTimeout> | undefined;
   _previewTimeout: ReturnType<typeof setTimeout> | undefined;
-
+  togglePin: (chatId: string) => Promise<void>;
+  toggleFavorite: (chatId: string) => Promise<void>;
   setMsgInput: (v: string) => void;
   setShowNewChat: (v: boolean) => void;
   setContextMenu: (v: ContextMenuState | null) => void;
   setForwardMsg: (v: Message | null) => void;
   setActiveView: (view: ActiveView) => void;
   setShowEmojiPicker: (v: boolean) => void;
+  addOptimisticMessage: (msg: any) => void;
+  replaceTempMessage: (tempId: string, realMsg: any) => void;
+  removeTempMessage: (tempId: string) => void;
 
   initSocket: () => () => void;
   openChat: (contact: Contact | null) => void;
@@ -194,6 +198,121 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   setForwardMsg: (v) => set({ forwardMsg: v }),
   setActiveView: (view: ActiveView) => set({ activeView: view }),
   setShowEmojiPicker: (v: boolean) => set({ showEmojiPicker: v }),
+
+  togglePin: async (chatId) => {
+    try {
+      await api.post(`${API_URL}/chats/toggle-pin/${chatId}`);
+      set((s) => ({
+        contacts: s.contacts.map((c) =>
+          c.customChatId === chatId ? { ...c, isPinned: !c.isPinned } : c,
+        ),
+      }));
+
+      // update cache
+      const queryClient = getQueryClient();
+      queryClient.setQueryData(["contacts"], (old: Contact[] | undefined) => {
+        if (!old) return old;
+        return old.map((c) =>
+          c._id === chatId ? { ...c, isPinned: !c.isPinned } : c,
+        );
+      });
+    } catch (error) {
+      console.error("Toggle pin failed", error);
+    }
+  },
+  toggleFavorite: async (chatId) => {
+    const queryClient = getQueryClient();
+    try {
+      await api.post(`${API_URL}/chats/toggle-favorite/${chatId}`);
+      set((s) => ({
+        contacts: s.contacts.map((c) =>
+          c.customChatId === chatId ? { ...c, isFavorite: !c.isFavorite } : c,
+        ),
+      }));
+
+      // update cache
+      queryClient.setQueryData(["contacts"], (old: Contact[] | undefined) => {
+        if (!old) return old;
+        return old.map((c) =>
+          c._id === chatId ? { ...c, isFavorite: !c.isFavorite } : c,
+        );
+      });
+    } catch (error) {
+      console.error("Toggle favorite failed", error);
+    }
+  },
+  addOptimisticMessage: (msg) => {
+    const chatId = get().activeContact?.customChatId;
+    const myId = useAuthStore.getState().myId;
+
+    const tempMsg = {
+      ...msg,
+      senderId: myId,
+      status: MessageStatus.SENDING,
+    };
+
+    set((s) => ({ messages: [...s.messages, tempMsg] }));
+    updateMessagesCache(chatId, (old) => [...old, tempMsg]);
+  },
+
+  replaceTempMessage: (tempId, realData) => {
+    const chatId = get().activeContact?.customChatId;
+    const myId = useAuthStore.getState().myId;
+    const { socket, activeContact } = get();
+
+    // backend থেকে আসা real message তৈরি করো
+    const realMsg = {
+      _id: realData.messageId,
+      senderId: myId,
+      content: realData.text ?? "",
+      attachments: realData.attachments ?? [],
+      createdAt: new Date().toISOString(),
+      status: MessageStatus.SENT,
+      isTemp: false,
+    };
+
+    set((s) => ({
+      messages: s.messages.map((m) => (m._id === tempId ? realMsg : m)),
+    }));
+    updateMessagesCache(chatId, (old) =>
+      old.map((m) => (m._id === tempId ? realMsg : m)),
+    );
+
+    // socket emit — real message সবার কাছে পাঠাও
+    socket?.emit("forward_message", {
+      receiverId: activeContact?._id,
+      message: realMsg,
+    });
+
+    // sidebar lastMessage update
+    set((s) => ({
+      contacts: s.contacts
+        .map((c) =>
+          c._id === activeContact?._id
+            ? {
+                ...c,
+                lastMessage: {
+                  content: realMsg.content || "📷 Image",
+                  createdAt: realMsg.createdAt,
+                },
+              }
+            : c,
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.lastMessage?.createdAt || 0).getTime() -
+            new Date(a.lastMessage?.createdAt || 0).getTime(),
+        ),
+    }));
+  },
+
+  removeTempMessage: (tempId) => {
+    const chatId = get().activeContact?.customChatId;
+    set((s) => ({
+      messages: s.messages.filter((m) => m._id !== tempId),
+    }));
+    filterAllPagesCache(chatId, (m) => m._id !== tempId);
+  },
 
   //  Socket init
   initSocket: () => {
