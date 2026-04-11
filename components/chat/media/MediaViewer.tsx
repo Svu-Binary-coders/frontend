@@ -32,21 +32,38 @@ interface MediaViewerProps {
   onClose: () => void;
 }
 
-// ── URL থেকে extension বের করে ──
+//  URL থেকে extension বের করে
 const getExtension = (url: string) => {
   const match = url.split("?")[0].match(/\.[a-z0-9]+$/i);
   return match ? match[0] : "";
 };
 
-// ── Download with progress ──
+//  blob URL কিনা check
+const isBlobUrl = (url: string) => url.startsWith("blob:");
+
+//  Download with progress
 function useDownload() {
-  const [state, setState] = useState<
-    "idle" | "downloading" | "done" | "error"
-  >("idle");
-  const [progress, setProgress] = useState(0); // 0-100
+  const [state, setState] = useState<"idle" | "downloading" | "done" | "error">(
+    "idle",
+  );
+  const [progress, setProgress] = useState(0);
 
   const download = async (url: string, name?: string) => {
     if (state === "downloading") return;
+
+    // blob URL হলে সরাসরি download করো
+    if (isBlobUrl(url)) {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name ?? `media_${Date.now()}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setState("done");
+      setTimeout(() => setState("idle"), 2000);
+      return;
+    }
+
     setState("downloading");
     setProgress(0);
 
@@ -54,7 +71,6 @@ function useDownload() {
       const response = await fetch(url);
       if (!response.ok) throw new Error("Fetch failed");
 
-      // ✅ Content-Length থেকে total size নাও
       const total = Number(response.headers.get("content-length") ?? 0);
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No reader");
@@ -67,11 +83,10 @@ function useDownload() {
         if (done) break;
         chunks.push(value);
         received += value.length;
-        // total অজানা হলে animated করবে
         setProgress(total ? Math.round((received / total) * 100) : 50);
       }
 
-      const blob = new Blob(chunks);
+      const blob = new Blob(chunks as BlobPart[]);
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -83,8 +98,6 @@ function useDownload() {
 
       setProgress(100);
       setState("done");
-
-      // ✅ ২ সেকেন্ড পর idle-এ ফিরে যাবে
       setTimeout(() => {
         setState("idle");
         setProgress(0);
@@ -102,7 +115,7 @@ function useDownload() {
   return { download, state, progress };
 }
 
-// ── Download Button ──
+//  Download Button
 function DownloadButton({
   onClick,
   state,
@@ -124,7 +137,6 @@ function DownloadButton({
         state === "error" && "bg-red-500/30 text-red-300",
       )}
     >
-      {/* ✅ progress fill — background-এ */}
       {state === "downloading" && (
         <div
           className="absolute inset-0 bg-white/10 transition-[width] duration-200 ease-out rounded-full"
@@ -141,7 +153,6 @@ function DownloadButton({
         )}
         {state === "downloading" && (
           <>
-            {/* spinner */}
             <svg
               className="animate-spin h-3.5 w-3.5"
               viewBox="0 0 24 24"
@@ -181,7 +192,7 @@ function DownloadButton({
   );
 }
 
-// ── FullVideoPlayer (same as before) ──
+//  FullVideoPlayer
 function FullVideoPlayer({ url, poster }: { url: string; poster?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -269,6 +280,7 @@ function FullVideoPlayer({ url, poster }: { url: string; poster?: string }) {
         await document.exitFullscreen();
       }
     } catch {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const v = videoRef.current as any;
       if (v?.webkitEnterFullscreen) v.webkitEnterFullscreen();
     }
@@ -311,7 +323,6 @@ function FullVideoPlayer({ url, poster }: { url: string; poster?: string }) {
         className="max-w-full max-h-[75vh] object-contain"
       />
 
-      {/* Center play icon */}
       <div
         className={cn(
           "absolute inset-0 flex items-center justify-center transition-opacity duration-300 pointer-events-none",
@@ -325,7 +336,6 @@ function FullVideoPlayer({ url, poster }: { url: string; poster?: string }) {
         )}
       </div>
 
-      {/* Controls */}
       <div
         className={cn(
           "absolute bottom-0 left-0 right-0 px-3 pt-6 pb-3 transition-opacity duration-300",
@@ -400,7 +410,48 @@ function FullVideoPlayer({ url, poster }: { url: string; poster?: string }) {
   );
 }
 
-// ── Main MediaViewer ──
+//  Smart Image — blob হলে <img>, real URL হলে Next.js <Image>
+function SmartImage({
+  src,
+  alt,
+  className,
+  width,
+  height,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  width: number;
+  height: number;
+}) {
+  if (isBlobUrl(src)) {
+    // ✅ blob URL — plain <img> ব্যবহার করো
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        draggable={false}
+        style={{ maxWidth: "100%", maxHeight: "75vh", objectFit: "contain" }}
+      />
+    );
+  }
+
+  // ✅ real URL — Next.js <Image> ব্যবহার করো
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      className={className}
+      draggable={false}
+      width={width}
+      height={height}
+      loading="lazy"
+    />
+  );
+}
+
+//  Main MediaViewer
 export function MediaViewer({
   items,
   initialIndex = 0,
@@ -409,7 +460,7 @@ export function MediaViewer({
   onClose,
 }: MediaViewerProps) {
   const [current, setCurrent] = useState(initialIndex);
-  const { download, state: dlState, progress: dlProgress } = useDownload(); // ✅
+  const { download, state: dlState, progress: dlProgress } = useDownload();
   const item = items[current];
 
   useEffect(() => {
@@ -438,7 +489,6 @@ export function MediaViewer({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* ✅ Download button with progress */}
           <DownloadButton
             onClick={() => download(item.url, item.name)}
             state={dlState}
@@ -465,14 +515,13 @@ export function MediaViewer({
         )}
 
         {item.type === "image" && (
-          <Image
+          // ✅ SmartImage — blob ও real URL দুটোই handle করে
+          <SmartImage
             src={item.url}
             alt={item.name ?? "image"}
             className="max-w-full max-h-[75vh] object-contain rounded-xl select-none"
-            draggable={false}
             width={800}
             height={600}
-            loading="lazy"
           />
         )}
 
@@ -480,7 +529,7 @@ export function MediaViewer({
           <FullVideoPlayer
             url={item.url}
             poster={
-              item.publicId
+              item.publicId && !isBlobUrl(item.url)
                 ? getVideoThumbnail(item.url, {
                     width: 1280,
                     height: 720,
@@ -521,15 +570,15 @@ export function MediaViewer({
                 )}
               >
                 {it.type === "image" ? (
-                  <Image
+                  // ✅ thumbnail-এও SmartImage
+                  <SmartImage
                     src={it.url}
                     alt=""
                     className="w-full h-full object-cover"
                     width={48}
                     height={48}
-                    loading="lazy"
                   />
-                ) : it.publicId ? (
+                ) : it.publicId && !isBlobUrl(it.url) ? (
                   <Image
                     src={getVideoThumbnail(it.url, {
                       width: 48,

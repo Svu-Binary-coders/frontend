@@ -1,4 +1,3 @@
-// path: src/hooks/useKeyboardShortcuts.ts
 "use client";
 import { useEffect } from "react";
 import { useChatStore } from "@/stores/chatStore";

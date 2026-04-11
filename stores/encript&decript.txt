@@ -1,0 +1,5 @@
+chat key -> 7
+A ( privet key) -> 2  chatKey*privet key ( 7*2) -> 14 -> shere B -> B (resive) -> own privet key * token -> 14*3 -> 42 (shere key dcript )
+B (privet key) -> 3 chatKey*privet key ( 7*3) -> 21 -> shere A -> A ( resive) -> own privet key * token  -> 21*2 -> 42 ( shere key decript)
+
+// encr

@@ -4,6 +4,7 @@ import { IMyDetails } from "@/interface/auth.interface";
 
 interface AuthStore {
   myId: string;
+  isChatLockEnabled: boolean;
   myDetails: IMyDetails | null;
   isAuthenticated: boolean;
   setAuth: (details: IMyDetails) => void;
@@ -17,12 +18,14 @@ export const useAuthStore = create<AuthStore>()(
       myId: "",
       myDetails: null,
       isAuthenticated: false,
+      isChatLockEnabled: false,
 
       setAuth: (details) =>
         set({
-          myId: details._id, 
+          myId: details._id,
           myDetails: details,
           isAuthenticated: true,
+          isChatLockEnabled: details.isChatLockEnabled,
         }),
 
       setMyDetails: (updatedDetails) =>

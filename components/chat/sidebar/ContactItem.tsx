@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { timeFormatFn } from "@/lib/dateHelper";
 import { useAppearanceStore } from "@/stores/appearanceStore";
 import { useChatStore } from "@/stores/chatStore";
-import { MoreVertical, Pin, Trash2, Ban, Star } from "lucide-react";
+import { MoreVertical, Pin, Trash2, Ban, Star, Lock } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -23,6 +23,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useLockChat } from "@/hooks/useChatAction";
 
 interface ContactItemProps {
   contact: Contact;
@@ -49,8 +50,10 @@ export default function ContactItem({
     .slice(0, 2);
 
   const { timeFormat } = useAppearanceStore();
+  
 
   const { togglePin, toggleFavorite } = useChatStore();
+  const {mutate: chatLock} = useLockChat(contact.customChatId as string);
 
   return (
     <ContextMenu>
@@ -184,6 +187,19 @@ export default function ContactItem({
                     {contact.isFavorite
                       ? "Remove from Favorites"
                       : "Add to Favorites"}
+                  </span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    chatLock();
+                  }}
+                  className="cursor-pointer gap-2"
+                >
+                  <Lock className="h-4 w-4 text-slate-500" />
+                  <span className="capitalize">
+                    chat lock
                   </span>
                 </DropdownMenuItem>
 

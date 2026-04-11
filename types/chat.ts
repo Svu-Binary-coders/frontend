@@ -17,6 +17,7 @@ export interface Contact {
   customChatId?: string;
   isPinned?: boolean;
   isFavorite?: boolean;
+  isChatLock?: boolean;
 }
 export interface Attachment {
   url: string;

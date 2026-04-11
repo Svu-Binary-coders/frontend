@@ -35,7 +35,9 @@ type TabKey = (typeof TABS)[number]["key"];
 
 export default function Sidebar() {
   const { myId } = useAuthStore();
-  const { contacts, activeContact, openChat, setShowNewChat } = useChatStore();
+  const { visibleContacts, activeContact, openChat, setShowNewChat } =
+    useChatStore();
+  const contacts = visibleContacts();
   const { data: authData } = useAuth();
   const { isLoading: contactsLoading } = useContacts(myId);
   const [search, setSearch] = useState("");
@@ -118,7 +120,6 @@ export default function Sidebar() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-0.5 shrink-0">
-         
           <Button
             variant="ghost"
             onClick={() => router.push("?page=settings&subPage=profile")}

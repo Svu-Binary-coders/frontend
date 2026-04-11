@@ -22,6 +22,7 @@ export const useAuth = () => {
         myId: query.data._id,
         myDetails: query.data,
         isAuthenticated: true,
+        isChatLockEnabled: query.data.isChatLockEnabled,
       });
 
       // socket setup

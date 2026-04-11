@@ -129,6 +129,7 @@ interface ChatStore {
   activeView: ActiveView;
   isConnected: boolean;
   contacts: Contact[];
+  visibleContacts: () => Contact[];
   activeContact: Contact | null;
   messages: Message[];
   msgInput: string;
@@ -174,6 +175,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   activeView: "chats" as ActiveView,
   isConnected: false,
   contacts: [],
+  visibleContacts: () => get().contacts.filter((c) => c.isChatLock !== true),
   activeContact: null,
   showEmojiPicker: false,
   messages: [],
@@ -198,6 +200,15 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   setForwardMsg: (v) => set({ forwardMsg: v }),
   setActiveView: (view: ActiveView) => set({ activeView: view }),
   setShowEmojiPicker: (v: boolean) => set({ showEmojiPicker: v }),
+
+  toggleChatLock: (customChatId: string) =>
+    set((state) => ({
+      contacts: state.contacts.map((c) =>
+        c.customChatId === customChatId
+          ? { ...c, isChatLock: !c.ischatLock }
+          : c,
+      ),
+    })),
 
   togglePin: async (chatId) => {
     try {
@@ -241,6 +252,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       console.error("Toggle favorite failed", error);
     }
   },
+
   addOptimisticMessage: (msg) => {
     const chatId = get().activeContact?.customChatId;
     const myId = useAuthStore.getState().myId;
@@ -260,7 +272,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     const myId = useAuthStore.getState().myId;
     const { socket, activeContact } = get();
 
-    // backend থেকে আসা real message তৈরি করো
     const realMsg = {
       _id: realData.messageId,
       senderId: myId,
@@ -277,12 +288,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     updateMessagesCache(chatId, (old) =>
       old.map((m) => (m._id === tempId ? realMsg : m)),
     );
-
-    // socket emit — real message সবার কাছে পাঠাও
-    socket?.emit("forward_message", {
-      receiverId: activeContact?._id,
-      message: realMsg,
-    });
 
     // sidebar lastMessage update
     set((s) => ({
@@ -629,6 +634,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       socket,
       editingMsg,
       replyTo,
+      forwardMsg,
       _typingTimeout,
     } = get();
     const myId = useAuthStore.getState().myId;
@@ -647,6 +653,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           newContent: content,
           chatRoomId: chatId,
           senderId: myId,
+          is_forwarded: !!forwardMsg,
         },
         (res: any) => {
           if (res?.success) {

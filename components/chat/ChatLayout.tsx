@@ -14,6 +14,7 @@ import CallsView from "../views/CallsView";
 import InviteView from "../views/InviteView";
 import SettingsView from "../views/settingsView";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
+import ChatLockView from "../views/chatLockView";
 
 export default function ChatLayout() {
   useKeyboardShortcuts();
@@ -103,6 +104,10 @@ function renderBodyLeftPanel(view: string) {
       return <CallsView />;
     case "invite":
       return <InviteView />;
+    case "archive":
+      return <div>Archive View</div>;
+    case "chat-lock":
+      return <ChatLockView />;
     default:
       return <Sidebar />;
   }

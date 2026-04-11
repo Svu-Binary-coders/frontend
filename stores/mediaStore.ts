@@ -1,17 +1,27 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // stores/mediaStore.ts
 import { create } from "zustand";
 import api from "@/lib/axios";
 import { API_URL } from "@/lib/chat-helpers";
 import { MessageStatus, StorageProvider } from "@/types/chat";
 
-// ── Types ──
 export type AttachmentType = "image" | "video" | "audio" | "file";
 
 export interface SelectedMedia {
-  id: string; // local temp id
+  id: string;
   file: File;
-  previewUrl: string; // blob URL (image এ দেখাবে)
+  previewUrl: string;
   type: AttachmentType;
+}
+
+export interface UploadingMedia {
+  id: string;
+  type: AttachmentType;
+  previewUrl: string; // blob URL — matching key
+  name: string;
+  size: number;
+  progress: number; // 0-100
+  done: boolean;
 }
 
 export interface Attachment {
@@ -41,7 +51,6 @@ export interface ConfirmSuccessPayload {
   text: string;
 }
 
-// ── File type detector ──
 const detectType = (file: File): AttachmentType => {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -49,18 +58,164 @@ const detectType = (file: File): AttachmentType => {
   return "file";
 };
 
-// ── Size limits ──
 const SIZE_LIMITS: Record<AttachmentType, number> = {
-  image: 10 * 1024 * 1024, // 10MB
-  video: 50 * 1024 * 1024, // 50MB
-  audio: 20 * 1024 * 1024, // 20MB
-  file: 30 * 1024 * 1024, // 30MB
+  image: 10 * 1024 * 1024,
+  video: 50 * 1024 * 1024,
+  audio: 20 * 1024 * 1024,
+  file: 30 * 1024 * 1024,
 };
 
 const MAX_FILES = 5;
 
+//  XHR upload — withCredentials + upload progress
+function xhrUpload(
+  url: string,
+  body: FormData | File | Blob,
+  onProgress?: (pct: number) => void,
+  options: {
+    method?: "POST" | "PUT";
+    skipCredentials?: boolean;
+    extraHeaders?: Record<string, string>;
+  } = {},
+): Promise<any> {
+  const {
+    method = "POST",
+    skipCredentials = false,
+    extraHeaders = {},
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+
+    if (!skipCredentials) {
+      xhr.withCredentials = true; // cookie auto-attach
+    }
+
+    Object.entries(extraHeaders).forEach(([k, v]) =>
+      xhr.setRequestHeader(k, v),
+    );
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        onProgress?.(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          resolve({});
+        }
+      } else {
+        let message = `Upload failed: ${xhr.status}`;
+        try {
+          const err = JSON.parse(xhr.responseText);
+          message = err?.error?.message ?? err?.message ?? message;
+        } catch {}
+        reject(new Error(message));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out"));
+    xhr.send(body);
+  });
+}
+
+//  Single file upload
+async function uploadSingle(
+  media: SelectedMedia,
+  onProgress?: (pct: number) => void,
+): Promise<Attachment & { provider: StorageProvider }> {
+  const { file, type } = media;
+
+  if (type === "image") {
+    const form = new FormData();
+    form.append("media", file);
+    const data = await xhrUpload(
+      `${API_URL}/uploads/chat-image`,
+      form,
+      onProgress,
+    );
+    return {
+      url: data.url,
+      publicId: data.publicId,
+      type: "image",
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      provider: "cloudinary",
+      path: null,
+    };
+  }
+
+  if (type === "video") {
+    const signRes = await api.post(`${API_URL}/uploads/sign-video`, {
+      fileSize: file.size,
+      fileName: file.name,
+    });
+    const { signature, timestamp, folder, apiKey, cloudName } = signRes.data;
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("signature", signature);
+    form.append("timestamp", String(timestamp));
+    form.append("folder", folder);
+    form.append("api_key", apiKey);
+
+    const cloudData = await xhrUpload(
+      `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
+      form,
+      onProgress,
+      { skipCredentials: true },
+    );
+
+    return {
+      url: cloudData.secure_url,
+      publicId: cloudData.public_id,
+      type: "video",
+      name: file.name,
+      size: file.size,
+      mimeType: file.type,
+      provider: "cloudinary",
+      path: null,
+    };
+  }
+
+  // Audio / File → Supabase
+  const fileType = type === "audio" ? "audio" : "file";
+  const signRes = await api.post(`${API_URL}/uploads/sign-supabase`, {
+    fileName: file.name,
+    fileType,
+    fileSize: Number(file.size),
+  });
+  const { uploadUrl, path, publicUrl } = signRes.data;
+
+  await xhrUpload(uploadUrl, file, onProgress, {
+    method: "PUT",
+    skipCredentials: true,
+    extraHeaders: { "Content-Type": file.type },
+  });
+
+  return {
+    url: publicUrl,
+    path,
+    type,
+    name: file.name,
+    size: file.size,
+    mimeType: file.type,
+    provider: "supabase",
+    publicId: null,
+  };
+}
+
+//  Store
 interface MediaState {
-  selectedMedias: SelectedMedia[]; // multiple files
+  selectedMedias: SelectedMedia[];
+  uploadingMedias: UploadingMedia[];
   isUploading: boolean;
   uploadError: string | null;
 
@@ -78,13 +233,12 @@ interface MediaState {
 
 export const useMediaStore = create<MediaState>((set, get) => ({
   selectedMedias: [],
+  uploadingMedias: [],
   isUploading: false,
   uploadError: null,
 
-  // ── File add ──
   addFiles: (files) => {
     const { selectedMedias } = get();
-
     if (selectedMedias.length + files.length > MAX_FILES) {
       return { ok: false, error: `Max ${MAX_FILES} files allowed` };
     }
@@ -95,65 +249,52 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     for (const file of files) {
       const type = detectType(file);
       const limit = SIZE_LIMITS[type];
-
       if (file.size > limit) {
         errors.push(`${file.name}: too large (max ${limit / 1024 / 1024}MB)`);
         continue;
       }
-
-      // video/audio/file — preview URL দেখাবে না, শুধু icon
-      const previewUrl = type === "image" ? URL.createObjectURL(file) : "";
-
       valid.push({
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
         file,
-        previewUrl,
+        previewUrl: type === "image" ? URL.createObjectURL(file) : "",
         type,
       });
     }
 
-    if (errors.length > 0) {
-      return { ok: false, error: errors.join(", ") };
-    }
-
+    if (errors.length > 0) return { ok: false, error: errors.join(", ") };
     set((s) => ({ selectedMedias: [...s.selectedMedias, ...valid] }));
     return { ok: true };
   },
 
-  // ── Single file remove ──
   removeFile: (id) => {
-    const { selectedMedias } = get();
-    const target = selectedMedias.find((m) => m.id === id);
+    const target = get().selectedMedias.find((m) => m.id === id);
     if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
     set((s) => ({
       selectedMedias: s.selectedMedias.filter((m) => m.id !== id),
     }));
   },
 
-  // ── Clear all ──
   clearMedia: () => {
     if (get().isUploading) return;
     get().selectedMedias.forEach((m) => {
       if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
     });
-    set({ selectedMedias: [], uploadError: null });
+    set({ selectedMedias: [], uploadError: null, uploadingMedias: [] });
   },
 
-  // ── Upload + Confirm ──
   uploadAndConfirm: async (chatId, text, onOptimistic, onSuccess, onError) => {
     const { selectedMedias } = get();
     if (selectedMedias.length === 0) return;
 
-    const snapshot = [...selectedMedias]; // local copy
+    const snapshot = [...selectedMedias];
     const tempId = `temp_${Date.now()}`;
 
-    // ── ১. Optimistic message ──
     onOptimistic({
       _id: tempId,
       isTemp: true,
       content: text,
       attachments: snapshot.map((m) => ({
-        url: m.previewUrl,
+        url: m.previewUrl, // blob URL
         type: m.type,
         name: m.file.name,
         size: m.file.size,
@@ -163,26 +304,43 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       status: MessageStatus.SENDING,
     });
 
-    // ── ২. Store clear — input bar ফাঁকা হবে ──
-    snapshot.forEach((m) => {
-      if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
+    set({
+      selectedMedias: [],
+      isUploading: true,
+      uploadError: null,
+      uploadingMedias: snapshot.map((m) => ({
+        id: m.id,
+        type: m.type,
+        previewUrl: m.previewUrl,
+        name: m.file.name,
+        size: m.file.size,
+        progress: 0,
+        done: false,
+      })),
     });
-    set({ selectedMedias: [], isUploading: true, uploadError: null });
 
     try {
-      const uploaded = await Promise.all(snapshot.map((m) => uploadSingle(m)));
-
-      // ── ৩. DB confirm ──
-      const confirmRes = await api.post(
-        `${API_URL}/uploads/confirm-attachment`,
-        {
-          chatId,
-          text,
-          attachments: uploaded,
-        },
+      const uploaded = await Promise.all(
+        snapshot.map((m) =>
+          uploadSingle(m, (pct) => {
+            set((s) => ({
+              uploadingMedias: s.uploadingMedias.map((u) =>
+                u.id === m.id ? { ...u, progress: pct, done: pct === 100 } : u,
+              ),
+            }));
+          }),
+        ),
       );
 
-      set({ isUploading: false });
+      const confirmRes = await api.post(
+        `${API_URL}/uploads/confirm-attachment`,
+        { chatId, text, attachments: uploaded },
+      );
+
+      snapshot.forEach((m) => {
+        if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
+      });
+      set({ isUploading: false, uploadingMedias: [] });
 
       if (confirmRes.data.success) {
         onSuccess({
@@ -195,108 +353,24 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         onError(tempId);
       }
     } catch (error: any) {
+      snapshot.forEach((m) => {
+        if (m.previewUrl) URL.revokeObjectURL(m.previewUrl);
+      });
       set({
         isUploading: false,
-        uploadError: error.response?.data?.message ?? "Upload failed.",
+        uploadingMedias: [],
+        uploadError:
+          error.response?.data?.message ?? error.message ?? "Upload failed.",
       });
       onError(tempId);
     }
   },
 }));
 
-// ── Single file upload helper ──
-async function uploadSingle(
-  media: SelectedMedia,
-): Promise<Attachment & { provider: StorageProvider }> {
-  const { file, type } = media;
-
-  // ── Image → Cloudinary (server) ──
-  if (type === "image") {
-    const form = new FormData();
-    form.append("media", file);
-    const res = await api.post(`${API_URL}/uploads/chat-image`, form, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-    return {
-      url: res.data.url,
-      publicId: res.data.publicId,
-      type: "image",
-      name: file.name,
-      size: file.size,
-      mimeType: file.type,
-      provider: "cloudinary",
-      path: null,
-    };
-  }
-
-  // ── Video → Cloudinary (direct signed upload) ──
-  if (type === "video") {
-    const signRes = await api.post(`${API_URL}/uploads/sign-video`, {
-      fileSize: file.size,
-      fileName: file.name,
-    });
-    const { signature, timestamp, folder, apiKey, cloudName } = signRes.data;
-
-    const form = new FormData();
-    form.append("file", file);
-    form.append("signature", signature);
-    form.append("timestamp", String(timestamp));
-    form.append("folder", folder);
-    form.append("api_key", apiKey);
-
-    // ── FIX: কাস্টম 'api.post'-এর বদলে ডিফল্ট 'fetch' ব্যবহার করা হলো ──
-    const cloudRes = await fetch(
-      `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
-      {
-        method: "POST",
-        body: form,
-      },
-    );
-
-    const cloudData = await cloudRes.json();
-
-    // যদি Cloudinary থেকে কোনো এরর আসে
-    if (!cloudRes.ok) {
-      throw new Error(
-        cloudData.error?.message || "Cloudinary video upload failed",
-      );
-    }
-
-    return {
-      url: cloudData.secure_url,
-      publicId: cloudData.public_id,
-      type: "video",
-      name: file.name,
-      size: file.size,
-      mimeType: file.type,
-      provider: "cloudinary",
-      path: null,
-    };
-  }
-
-  // ── Audio / File → Supabase (direct signed upload) ──
-  const fileType = type === "audio" ? "audio" : "file";
-  const signRes = await api.post(`${API_URL}/uploads/sign-supabase`, {
-    fileName: file.name,
-    fileType,
-    fileSize: file.size,
+export function useAttachmentProgress(attachmentUrl: string) {
+  return useMediaStore((s) => {
+    if (!attachmentUrl.startsWith("blob:")) return null;
+    const match = s.uploadingMedias.find((u) => u.previewUrl === attachmentUrl);
+    return match ? { progress: match.progress, done: match.done } : null;
   });
-  const { uploadUrl, path, publicUrl } = signRes.data;
-
-  await fetch(uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type },
-  });
-
-  return {
-    url: publicUrl,
-    path,
-    type,
-    name: file.name,
-    size: file.size,
-    mimeType: file.type,
-    provider: "supabase",
-    publicId: null,
-  };
 }

@@ -13,25 +13,182 @@ import {
   Music,
   FileText,
   Plus,
+  Loader2,
+  Check,
 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
-import { useMediaStore, SelectedMedia } from "@/stores/mediaStore";
+import {
+  useMediaStore,
+  SelectedMedia,
+  UploadingMedia,
+} from "@/stores/mediaStore";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-// ── File type icon ──
+//  File type icon
 function FileTypeIcon({ type }: { type: string }) {
-  if (type === "video") return <Film className="h-6 w-6 text-purple-500" />;
-  if (type === "audio") return <Music className="h-6 w-6 text-green-500" />;
-  return <FileText className="h-6 w-6 text-orange-500" />;
+  if (type === "video") return <Film className="h-6 w-6 text-purple-400" />;
+  if (type === "audio") return <Music className="h-6 w-6 text-green-400" />;
+  return <FileText className="h-6 w-6 text-orange-400" />;
 }
 
-// ── File size label ──
 function sizeLabel(bytes: number) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+//  SVG circular progress ring
+function CircularProgress({
+  progress,
+  done,
+}: {
+  progress: number;
+  done: boolean;
+}) {
+  const r = 20;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (progress / 100) * circ;
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
+      {done ? (
+        // checkmark
+        <div className="h-9 w-9 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg">
+          <Check className="h-5 w-5 text-white" strokeWidth={2.5} />
+        </div>
+      ) : (
+        <div className="relative flex items-center justify-center">
+          <svg width="52" height="52" className="-rotate-90">
+            {/* track */}
+            <circle
+              cx="26"
+              cy="26"
+              r={r}
+              fill="none"
+              stroke="rgba(255,255,255,0.2)"
+              strokeWidth="4"
+            />
+            {/* fill */}
+            <circle
+              cx="26"
+              cy="26"
+              r={r}
+              fill="none"
+              stroke="white"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={offset}
+              style={{ transition: "stroke-dashoffset 0.2s ease-out" }}
+            />
+          </svg>
+          {/* percentage text */}
+          <span className="absolute text-[11px] font-bold text-white tabular-nums">
+            {progress}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+//  Uploading thumbnail card
+function UploadingThumb({ item }: { item: UploadingMedia }) {
+  return (
+    <div className="relative shrink-0 h-16 w-16">
+      {/* background: image বা icon */}
+      {item.type === "image" && item.previewUrl ? (
+        <img
+          src={item.previewUrl}
+          alt={item.name}
+          className="h-full w-full object-cover rounded-xl"
+        />
+      ) : (
+        <div className="h-full w-full rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center gap-0.5 px-1">
+          <FileTypeIcon type={item.type} />
+          <span className="text-[8px] text-slate-400">
+            {sizeLabel(item.size)}
+          </span>
+        </div>
+      )}
+
+      {/* progress overlay */}
+      <CircularProgress progress={item.progress} done={item.done} />
+
+      {/* type badge */}
+      <span
+        className={cn(
+          "absolute top-0.5 left-0.5 text-[8px] font-bold px-1 py-0.5 rounded-md uppercase",
+          item.type === "image" && "bg-sky-500/80 text-white",
+          item.type === "video" && "bg-purple-500/80 text-white",
+          item.type === "audio" && "bg-green-500/80 text-white",
+          item.type === "file" && "bg-orange-500/80 text-white",
+        )}
+      >
+        {item.type}
+      </span>
+    </div>
+  );
+}
+
+//  Pending thumbnail card (before send)
+function PendingThumb({
+  item,
+  onRemove,
+}: {
+  item: SelectedMedia;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="relative shrink-0 group/thumb h-16 w-16">
+      {item.type === "image" ? (
+        <img
+          src={item.previewUrl}
+          alt={item.file.name}
+          className="h-full w-full object-cover rounded-xl border-2 border-sky-200 dark:border-sky-800"
+        />
+      ) : (
+        <div className="h-full w-full rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center gap-0.5 px-1">
+          <FileTypeIcon type={item.type} />
+          <span className="text-[9px] text-slate-500 dark:text-slate-400 truncate w-full text-center px-0.5 leading-tight">
+            {item.file.name.length > 10
+              ? item.file.name.slice(0, 8) + "…"
+              : item.file.name}
+          </span>
+          <span className="text-[8px] text-slate-400">
+            {sizeLabel(item.file.size)}
+          </span>
+        </div>
+      )}
+
+      {/* remove button */}
+      <button
+        onClick={onRemove}
+        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow-sm"
+      >
+        <X className="h-3 w-3" />
+      </button>
+
+      {/* type badge */}
+      <span
+        className={cn(
+          "absolute bottom-0.5 left-0.5 text-[8px] font-bold px-1 py-0.5 rounded-md uppercase",
+          item.type === "image" &&
+            "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300",
+          item.type === "video" &&
+            "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+          item.type === "audio" &&
+            "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
+          item.type === "file" &&
+            "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
+        )}
+      >
+        {item.type}
+      </span>
+    </div>
+  );
 }
 
 export default function InputBar() {
@@ -51,6 +208,7 @@ export default function InputBar() {
 
   const {
     selectedMedias,
+    uploadingMedias,
     isUploading,
     addFiles,
     removeFile,
@@ -61,7 +219,6 @@ export default function InputBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
 
-  // ── file picker entries ──
   const pickers = [
     {
       id: "picker-image",
@@ -93,7 +250,6 @@ export default function InputBar() {
     },
   ] as const;
 
-  // ── handlers ──
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
@@ -115,14 +271,16 @@ export default function InputBar() {
   const onSendMessage = async () => {
     if (!activeContact) return;
 
-    // ── media send ──
+    // ১. যদি নতুন কোনো ফাইল সিলেক্ট করা থাকে, তাহলে মিডিয়া সেন্ড করো
     if (selectedMedias.length > 0) {
+      // যদি আগে থেকেই অন্য কোনো আপলোড চলতে থাকে, তবে নতুন আপলোড শুরু করা যাবে না (prevent duplicate click)
+      if (isUploading) return;
+
       const customChatId = activeContact.customChatId;
       if (!customChatId) {
         toast.error("Failed to send media: missing chat ID");
         return;
       }
-
       const text = msgInput.trim();
       useChatStore.setState({ msgInput: "" });
       inputRef.current?.focus();
@@ -140,9 +298,9 @@ export default function InputBar() {
       return;
     }
 
-    // ── text send ──
+    // ২. যদি কোনো ফাইল সিলেক্ট করা না থাকে, শুধু টেক্সট সেন্ড করো (এমনকি আপলোড চলাকালীন সময়েও)
     if (msgInput.trim()) {
-      sendMessage();
+      sendMessage(); // এটি আপনার chatStore এর টেক্সট সেন্ড করার ফাংশন
       setShowEmojiPicker(false);
       inputRef.current?.focus();
     }
@@ -160,15 +318,20 @@ export default function InputBar() {
     }
   };
 
+  const openPicker = (id: string) => document.getElementById(id)?.click();
   const hasContent = msgInput.trim().length > 0 || selectedMedias.length > 0;
 
-  const openPicker = (id: string) => {
-    document.getElementById(id)?.click();
-  };
+  // upload চলাকালীন total progress (badge হিসেবে send বাটনে)
+  const overallProgress = uploadingMedias.length
+    ? Math.round(
+        uploadingMedias.reduce((a, u) => a + u.progress, 0) /
+          uploadingMedias.length,
+      )
+    : 0;
 
   return (
     <div className="relative border-t border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900 px-4 py-3 shrink-0 transition-colors duration-200">
-      {/* ── Hidden file inputs ── */}
+      {/*  Hidden file inputs  */}
       {pickers.map(({ id, accept, multiple, label }) => (
         <input
           key={label}
@@ -181,7 +344,7 @@ export default function InputBar() {
         />
       ))}
 
-      {/* ── Emoji picker ── */}
+      {/*  Emoji picker  */}
       {showEmojiPicker && (
         <div
           ref={emojiRef}
@@ -198,7 +361,7 @@ export default function InputBar() {
         </div>
       )}
 
-      {/* ── Reply / Edit bar ── */}
+      {/*  Reply / Edit bar  */}
       {(replyTo || editingMsg) && (
         <div
           className={cn(
@@ -209,102 +372,70 @@ export default function InputBar() {
           )}
         >
           {editingMsg ? (
-            <Pencil className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+            <Pencil className="h-3.5 w-3.5 text-amber-500 shrink-0" />
           ) : (
-            <CornerUpRight className="h-3.5 w-3.5 text-sky-500 dark:text-sky-400 shrink-0" />
+            <CornerUpRight className="h-3.5 w-3.5 text-sky-500 shrink-0" />
           )}
           <span
             className={cn(
-              "font-semibold shrink-0 tracking-wide",
-              editingMsg
-                ? "text-amber-600 dark:text-amber-500"
-                : "text-sky-600 dark:text-sky-400",
+              "font-semibold shrink-0",
+              editingMsg ? "text-amber-600" : "text-sky-600",
             )}
           >
             {editingMsg ? "Editing" : "Replying to"}
           </span>
-          <span className="text-slate-500 dark:text-slate-400 truncate flex-1 opacity-90">
+          <span className="text-slate-500 truncate flex-1 opacity-90">
             {editingMsg?.content ?? replyTo?.content}
           </span>
           <Button
             variant="ghost"
             size="icon"
             onClick={clearContext}
-            className="h-6 w-6 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400"
+            className="h-6 w-6 rounded-full"
           >
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
       )}
 
-      {/* ── Media preview strip ── */}
-      {selectedMedias.length > 0 && (
+      {/*
+         Media strip 
+        두 가지 state:
+        1. selectedMedias  → 아직 안 보낸 파일 (remove 가능)
+        2. uploadingMedias → 업로드 중 (progress overlay)
+      */}
+      {(selectedMedias.length > 0 || uploadingMedias.length > 0) && (
         <div className="flex items-end gap-2 mb-3 overflow-x-auto pb-1 scrollbar-none">
-          {selectedMedias.map((m: SelectedMedia) => (
-            <div key={m.id} className="relative shrink-0 group/thumb">
-              {/* image thumbnail */}
-              {m.type === "image" ? (
-                <img
-                  src={m.previewUrl}
-                  alt={m.file.name}
-                  className="h-16 w-16 object-cover rounded-xl border-2 border-sky-200 dark:border-sky-800"
-                />
-              ) : (
-                // video / audio / file → icon + name + size
-                <div className="h-16 w-16 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex flex-col items-center justify-center gap-0.5 px-1">
-                  <FileTypeIcon type={m.type} />
-                  <span className="text-[9px] text-slate-500 dark:text-slate-400 truncate w-full text-center px-0.5 leading-tight">
-                    {m.file.name.length > 10
-                      ? m.file.name.slice(0, 8) + "…"
-                      : m.file.name}
-                  </span>
-                  <span className="text-[8px] text-slate-400">
-                    {sizeLabel(m.file.size)}
-                  </span>
-                </div>
-              )}
-
-              {/* remove button */}
-              <button
-                onClick={() => removeFile(m.id)}
-                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow-sm"
-              >
-                <X className="h-3 w-3" />
-              </button>
-
-              {/* type badge */}
-              <span
-                className={cn(
-                  "absolute bottom-0.5 left-0.5 text-[8px] font-bold px-1 py-0.5 rounded-md uppercase",
-                  m.type === "image" &&
-                    "bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300",
-                  m.type === "video" &&
-                    "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
-                  m.type === "audio" &&
-                    "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
-                  m.type === "file" &&
-                    "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300",
-                )}
-              >
-                {m.type}
-              </span>
-            </div>
+          {/* pending files */}
+          {selectedMedias.map((m) => (
+            <PendingThumb
+              key={m.id}
+              item={m}
+              onRemove={() => removeFile(m.id)}
+            />
           ))}
 
-          {/* + more button */}
-          {selectedMedias.length < 5 && (
-            <button
-              onClick={() => openPicker("picker-image")}
-              className="h-16 w-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-sky-400 hover:text-sky-500 dark:hover:border-sky-500 transition-colors"
-            >
-              <Plus className="h-5 w-5" />
-              <span className="text-[9px]">Add more</span>
-            </button>
-          )}
+          {/* uploading files — progress overlay সহ */}
+          {uploadingMedias.map((m) => (
+            <UploadingThumb key={m.id} item={m} />
+          ))}
+
+          {/* + add more (pending state-এ) */}
+          {!isUploading &&
+            selectedMedias.length < MAX_FILES &&
+            selectedMedias.length > 0 && (
+              <button
+                onClick={() => openPicker("picker-image")}
+                className="h-16 w-16 shrink-0 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-sky-400 hover:text-sky-500 transition-colors"
+              >
+                <Plus className="h-5 w-5" />
+                <span className="text-[9px]">Add more</span>
+              </button>
+            )}
         </div>
       )}
 
-      {/* ── Input row ── */}
+      {/*  Input row  */}
       <div className="flex items-end gap-2">
         {/* Attachment picker */}
         <div className="relative group/picker mb-1">
@@ -312,18 +443,15 @@ export default function InputBar() {
             variant="ghost"
             size="icon"
             disabled={isUploading}
-            className="h-9 w-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
+            className="h-9 w-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 disabled:opacity-40"
           >
-            <Paperclip className="h-4.5 w-4.5 text-slate-400 hover:text-sky-500 transition-colors" />
+            <Paperclip className="h-4.5 w-4.5 text-slate-400" />
           </Button>
 
-          {/* popup menu */}
           <div
             className={cn(
               "absolute bottom-11 left-0 z-50",
-              "bg-white dark:bg-slate-900",
-              "border border-slate-200 dark:border-slate-700",
-              "rounded-2xl shadow-lg p-1.5",
+              "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-lg p-1.5",
               "flex flex-col gap-0.5 min-w-[130px]",
               "opacity-0 pointer-events-none scale-95 origin-bottom-left",
               "group-focus-within/picker:opacity-100 group-focus-within/picker:pointer-events-auto group-focus-within/picker:scale-100",
@@ -344,7 +472,7 @@ export default function InputBar() {
           </div>
         </div>
 
-        {/* Text input box */}
+        {/* Text input */}
         <div
           className={cn(
             "flex-1 flex items-center gap-2 border rounded-2xl px-4 py-2.5 transition-all duration-200",
@@ -358,8 +486,8 @@ export default function InputBar() {
             onChange={(e) => handleTyping(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              selectedMedias.length > 0
-                ? "Add a caption..."
+              selectedMedias.length > 0 || uploadingMedias.length > 0
+                ? "Add a caption or write a message..."
                 : "Write your message here..."
             }
             className="flex-1 bg-transparent text-[15px] text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none w-full"
@@ -368,6 +496,7 @@ export default function InputBar() {
             variant="ghost"
             size="icon"
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            // 🔴 এখান থেকেও disabled রিমুভ করা হয়েছে
             className="h-8 w-8 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0"
           >
             <Smile className="h-4 w-4 text-slate-400 hover:text-amber-500 transition-colors" />
@@ -377,21 +506,23 @@ export default function InputBar() {
         {/* Send button */}
         <Button
           onClick={onSendMessage}
-          disabled={!hasContent}
+          disabled={!hasContent || (selectedMedias.length > 0 && isUploading)}
           size="icon"
           className={cn(
-            "h-11 w-11 rounded-2xl shrink-0 transition-all duration-200 shadow-sm",
-            "bg-sky-500 hover:bg-sky-600 text-white",
-            "dark:bg-sky-600 dark:hover:bg-sky-500",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-            hasContent ? "scale-100" : "scale-95",
+            "relative h-11 w-11 rounded-2xl shrink-0 transition-all duration-200 shadow-sm overflow-hidden",
+            "bg-sky-500 hover:bg-sky-600 text-white dark:bg-sky-600 dark:hover:bg-sky-500",
+            "disabled:opacity-80 disabled:cursor-not-allowed",
           )}
         >
-          <Send className="h-4 w-4" />
+          {selectedMedias.length > 0 && isUploading ? (
+            <Loader2 className="relative h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
         </Button>
       </div>
 
-      {/* ── Keyboard hints ── */}
+      {/*  Keyboard hints  */}
       <div className="hidden md:flex justify-center items-center gap-2 mt-3 text-[10px] font-medium text-slate-400 dark:text-slate-500 select-none">
         <span>
           Press
@@ -411,3 +542,5 @@ export default function InputBar() {
     </div>
   );
 }
+
+const MAX_FILES = 5;

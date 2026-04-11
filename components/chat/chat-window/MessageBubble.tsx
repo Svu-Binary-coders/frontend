@@ -32,7 +32,7 @@ import { timeFormatFn } from "@/lib/dateHelper";
 import { MediaViewer } from "../media/MediaViewer";
 import { VideoPlayer } from "../media/VideoPlayer";
 
-// ── helpers ──
+//  helpers
 const sizeLabel = (bytes: number) => {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
@@ -61,7 +61,7 @@ const getExtension = (url: string) => {
   return match ? match[0] : "";
 };
 
-// ── Download hook ──
+//  Download hook
 type DlState = "idle" | "downloading" | "done" | "error";
 
 function useDownload() {
@@ -320,7 +320,7 @@ function ReplyPreview({
   );
 }
 
-// ── Status icon ──
+//  Status icon
 const StatusIcon = ({ status }: { status: MessageStatus }) => {
   if (status === MessageStatus.SENDING)
     return <Clock className="h-3 w-3 text-white/60" />;
@@ -504,7 +504,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
 
-  // ── Media bubble ──
+  //  Media bubble
   if ((hasMedia || audioAtts.length > 0 || fileAtts.length > 0) && !isDeleted) {
     const videoAtts = mediaAtts.filter((a: any) => a.type === "video");
 
@@ -741,7 +741,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     );
   }
 
-  // ── Text bubble ──
+  //  Text bubble
   return (
     <div
       id={`message-${message._id}`}

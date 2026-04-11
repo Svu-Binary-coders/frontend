@@ -14,7 +14,7 @@ export const useContacts = (userId: string) => {
       return data.contacts as Contact[];
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 2, 
+    staleTime: 1000 * 60 * 60, // 1 hour
   });
 
   useEffect(() => {
@@ -22,17 +22,13 @@ export const useContacts = (userId: string) => {
     const { socket } = useChatStore.getState();
 
     query.data.forEach((c: Contact) => {
-      socket?.emit(
-        "check_status",
-        c._id,
-        ({ online }: { online: boolean }) => {
-          useChatStore.setState((s) => ({
-            contacts: s.contacts.map((x) =>
-              x._id === c._id ? { ...x, isOnline: online } : x
-            ),
-          }));
-        }
-      );
+      socket?.emit("check_status", c._id, ({ online }: { online: boolean }) => {
+        useChatStore.setState((s) => ({
+          contacts: s.contacts.map((x) =>
+            x._id === c._id ? { ...x, isOnline: online } : x,
+          ),
+        }));
+      });
     });
 
     useChatStore.setState({ contacts: query.data });

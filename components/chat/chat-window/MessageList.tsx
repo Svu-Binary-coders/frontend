@@ -1,11 +1,10 @@
-// src/components/chat/chat-window/MessageList.tsx
 "use client";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { groupMessagesByDate } from "@/utils/date";
 import MessageBubble from "./MessageBubble";
 import DateDivider from "./DateDivider";
 import TypingIndicator from "./TypingIndicator";
-import { MessageSquare, Loader2 } from "lucide-react";
+import { MessageSquare, Loader2, ChevronDown } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatHistory } from "@/hooks/useChatHistory";
 import { useAppearanceStore } from "@/stores/appearanceStore";
@@ -29,24 +28,47 @@ export default function MessageList() {
   const prevScrollHeightRef = useRef<number>(0);
   const prevLengthRef = useRef(0);
   const isFirstLoad = useRef(true);
-  const isFetchingRef = useRef(false); // ← double fetch guard
+  const isFetchingRef = useRef(false);
 
-  //  chat switch → reset
+  // 🟢 State: Floating Scroll Button
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // 🟢 React Warning Fix: Render Phase State Update
+  const [prevContactId, setPrevContactId] = useState(activeContact?._id);
+  if (activeContact?._id !== prevContactId) {
+    setPrevContactId(activeContact?._id);
+    setShowScrollButton(false); // চ্যাট চেঞ্জ হলে বাটন সাথে সাথে হাইড হয়ে যাবে
+  }
+
+  //  Helper Function
+  const scrollToBottom = (behavior: ScrollBehavior = "instant") => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior,
+      });
+    }
+  };
+
+  // 1. Chat Switch Reset
   useEffect(() => {
     isFirstLoad.current = true;
     prevLengthRef.current = 0;
   }, [activeContact?._id]);
 
-  //  প্রথম load → নিচে jump
+  // 2. Initial Load Scroll
   useEffect(() => {
-    if (messages.length && isFirstLoad.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    if (messages.length > 0 && isFirstLoad.current) {
+      setTimeout(() => {
+        scrollToBottom("instant");
+      }, 10);
       isFirstLoad.current = false;
     }
-  }, [messages.length]);
+  }, [messages.length, activeContact?._id]);
 
-  //  socket নতুন message → near bottom হলে scroll
+  // 3. New Message Scroll Logic
   useEffect(() => {
+    if (isFirstLoad.current) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -54,18 +76,24 @@ export default function MessageList() {
     const added = newLength - prevLengthRef.current;
     prevLengthRef.current = newLength;
 
-    // page fetch-এ অনেক আসে, socket-এ ১টা আসে
-    if (added === 1 && !isFirstLoad.current) {
+    if (added === 1) {
       const isNearBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight <
-        120;
+        150;
+
       if (isNearBottom) {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        setTimeout(() => {
+          scrollToBottom("smooth");
+        }, 10);
+      } else {
+        setTimeout(() => {
+          setShowScrollButton(true);
+        }, 0);
       }
     }
   }, [messages]);
 
-  //  পুরনো page load শেষ → scroll position restore
+  // 4. Restore scroll position after fetching older messages
   useEffect(() => {
     if (!isFetchingNextPage) {
       const container = scrollContainerRef.current;
@@ -76,26 +104,36 @@ export default function MessageList() {
     }
   }, [isFetchingNextPage]);
 
-  //  উপরে scroll → fetch, double call guard
+  //  Handle Scroll (Top & Bottom)
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    // Fetch older messages when scrolled to top
     if (
       container.scrollTop < 80 &&
       hasNextPage &&
       !isFetchingNextPage &&
-      !isFetchingRef.current // ← guard
+      !isFetchingRef.current
     ) {
       isFetchingRef.current = true;
       prevScrollHeightRef.current = container.scrollHeight;
       fetchNextPage().finally(() => {
-        isFetchingRef.current = false; // ← fetch শেষে reset
+        isFetchingRef.current = false;
       });
+    }
+
+    // Floating Button Logic
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom > 250) {
+      setShowScrollButton(true);
+    } else {
+      setShowScrollButton(false);
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  //  Wallpaper
+  //  Wallpaper Styles
   const wallpaperBg =
     wallpaper === "gradient1"
       ? "bg-linear-to-br from-sky-100 to-blue-50 dark:from-sky-900 dark:to-slate-900"
@@ -120,7 +158,7 @@ export default function MessageList() {
           }
         : {};
 
-  //  Initial loading
+  //  Renders
   if (msgLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-white dark:bg-[#0b141a]">
@@ -129,7 +167,6 @@ export default function MessageList() {
     );
   }
 
-  //  Empty state
   if (!messages.length) {
     return (
       <div
@@ -155,51 +192,64 @@ export default function MessageList() {
   const grouped = groupMessagesByDate(messages);
 
   return (
-    <div
-      ref={scrollContainerRef}
-      onScroll={handleScroll}
-      className={cn(
-        "flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 transition-colors duration-300",
-        wallpaperBg,
-      )}
-      style={wallpaperStyle}
-    >
-      {isFetchingNextPage && (
-        <div className="flex justify-center py-3">
-          <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-        </div>
-      )}
-
-      {!hasNextPage && messages.length > 0 && (
-        <p className="text-center text-xs text-slate-400 dark:text-slate-600 py-3">
-          Beginning of conversation
-        </p>
-      )}
-
+    <div className="relative flex-1 flex flex-col min-h-0">
+      {/*  Main Message Container  */}
       <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
         className={cn(
-          "flex flex-col px-5 py-4",
-          compactMode ? "gap-0.5" : "gap-1.5",
+          "flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 transition-colors duration-300",
+          wallpaperBg,
         )}
+        style={wallpaperStyle}
       >
-        {grouped.map((group) => (
-          <div key={group.label} className="flex flex-col">
-            <DateDivider label={group.label} />
-            <div
-              className={cn(
-                "flex flex-col",
-                compactMode ? "gap-0.5" : "gap-1.5",
-              )}
-            >
-              {group.messages.map((msg) => (
-                <MessageBubble key={msg._id} message={msg} />
-              ))}
-            </div>
+        {isFetchingNextPage && (
+          <div className="flex justify-center py-3">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
           </div>
-        ))}
-        <TypingIndicator />
-        <div ref={bottomRef} />
+        )}
+
+        {!hasNextPage && messages.length > 0 && (
+          <p className="text-center text-xs text-slate-400 dark:text-slate-600 py-3">
+            Beginning of conversation
+          </p>
+        )}
+
+        <div
+          className={cn(
+            "flex flex-col px-5 py-4",
+            compactMode ? "gap-0.5" : "gap-1.5",
+          )}
+        >
+          {grouped.map((group) => (
+            <div key={group.label} className="flex flex-col">
+              <DateDivider label={group.label} />
+              <div
+                className={cn(
+                  "flex flex-col",
+                  compactMode ? "gap-0.5" : "gap-1.5",
+                )}
+              >
+                {group.messages.map((msg) => (
+                  <MessageBubble key={msg._id} message={msg} />
+                ))}
+              </div>
+            </div>
+          ))}
+          <TypingIndicator />
+          <div ref={bottomRef} />
+        </div>
       </div>
+
+      {/*  Floating Go to Bottom Button  */}
+      {showScrollButton && (
+        <button
+          onClick={() => scrollToBottom("smooth")}
+          className="absolute bottom-6 right-6 p-2.5 rounded-full bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-[0_4px_14px_rgba(0,0,0,0.15)] border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all z-50 animate-in fade-in slide-in-from-bottom-5"
+        >
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      )}
     </div>
   );
 }
