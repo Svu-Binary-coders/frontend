@@ -93,7 +93,7 @@ export class KeyManager {
       hkdfKey,
       { name: "AES-GCM", length: 256 },
       false, // ← non-extractable: can never be read out of memory
-      ["wrapKey", "unwrapKey"],
+      ["wrapKey", "unwrapKey","decrypt","encrypt"] // ← only for wrapping/unwrapping keys,
     );
   }
 

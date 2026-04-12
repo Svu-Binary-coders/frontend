@@ -1,4 +1,3 @@
-// lib/axios.ts
 import axios from "axios";
 
 const api = axios.create({
@@ -13,7 +12,7 @@ const api = axios.create({
 export const publicPaths = [
   "/",
   "/login",
-  "/register",
+  "/signup",
   "/forgot-password",
   "/reset-password",
 ];
@@ -26,6 +25,9 @@ api.interceptors.response.use(
         const currentPath = window.location.pathname;
 
         if (!publicPaths.includes(currentPath)) {
+          document.cookie =
+            "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
           window.location.href = "/login";
         }
       }

@@ -1,32 +1,8 @@
-// src/core/e2e/BackupManager.ts
-//
-// Backup Key Hierarchy
-// ─────────────────────────────────────────────────────────────────────────
-//
-//  Registration এ (একবার):
-//    random 32 bytes → BackupKey (AES-GCM-256)
-//    BackupKey → BIP39-style 24-word Recovery Phrase (user লিখে রাখে)
-//    BackupKey → MasterKey দিয়ে encrypt → server এ save
-//
-//  নতুন chat শুরু হলে:
-//    ChatKey → BackupKey দিয়ে encrypt → server এ save (chatId key দিয়ে)
-//
-//  Login এ:
-//    PIN → MasterKey → server থেকে encrypted BackupKey decrypt
-//    BackupKey → server থেকে সব encrypted ChatKey decrypt
-//    সব ChatKey memory তে load → messages পড়া যাবে
-//
-//  PIN ভুলে গেলে:
-//    Recovery Phrase → BackupKey restore
-//    নতুন PIN → নতুন MasterKey → BackupKey re-encrypt → server এ update
-//
-// Note:
-//   BackupKey কখনো PIN থেকে derive হয় না — সম্পূর্ণ random।
-//   তাই PIN change বা PIN forget এ backup safe থাকে।
+"use client";
 
 const subtle = () => window.crypto.subtle;
 const rand = (n: number) => window.crypto.getRandomValues(new Uint8Array(n));
-const enc = (s: string) => new TextEncoder().encode(s);
+const textEnc = (s: string) => new TextEncoder().encode(s);
 
 // ── Base64 helpers ─────────────────────────────────────────────────────────
 function b64e(buf: ArrayBuffer | Uint8Array): string {
@@ -39,7 +15,7 @@ function b64d(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
-// ── AES-GCM encrypt / decrypt (raw bytes in, base64 out) ──────────────────
+// ── AES-GCM encrypt / decrypt ─────────────────────────────────────────────
 async function aesEncrypt(
   key: CryptoKey,
   data: Uint8Array,
@@ -66,7 +42,7 @@ async function aesDecrypt(
   return new Uint8Array(plain);
 }
 
-// ── Import raw bytes as AES-GCM key ───────────────────────────────────────
+// ── Key import helpers ────────────────────────────────────────────────────
 async function importAesKey(
   raw: Uint8Array,
   usages: KeyUsage[],
@@ -75,7 +51,7 @@ async function importAesKey(
     "raw",
     raw as unknown as BufferSource,
     { name: "AES-GCM" },
-    true, // exportable — backup key টা export করতে হবে wrap করার জন্য
+    true, // extractable - backup key -> requirement for re-encryption during PIN change
     usages,
   );
 }
@@ -84,367 +60,395 @@ async function exportAesKey(key: CryptoKey): Promise<Uint8Array> {
   return new Uint8Array(await subtle().exportKey("raw", key));
 }
 
-// ── Recovery Phrase ────────────────────────────────────────────────────────
-// BIP39 wordlist এর সহজ subset — production এ full 2048-word BIP39 list ব্যবহার করো।
-// এখানে concept বোঝানোর জন্য 256 word এর placeholder।
-const WORDLIST: string[] = [
+// ChatKey হলো HKDF source key — export করা যায় না
+// তাই raw bits আলাদাভাবে নিতে হয় (নিচে দেখো)
+async function importHkdfKey(raw: Uint8Array): Promise<CryptoKey> {
+  return subtle().importKey(
+    "raw",
+    raw as unknown as BufferSource,
+    "HKDF",
+    false, // non-extractable — এটা শুধু derive করতে পারবে
+    ["deriveKey", "deriveBits"],
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Recovery Phrase System
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Encoding:
+//   24 random bytes → 24 words
+//   WORDLIST এ ঠিক 256 unique word → প্রতি byte (0-255) → 1 word
+//
+// Key derivation (deterministic):
+//   PBKDF2(phrase_string, FIXED_SALT, 310_000, SHA-256) → 32 bytes → BackupKey
+//   একই phrase সবসময় একই BackupKey দেবে।
+
+const FIXED_PHRASE_SALT = "FCP-BACKUP-PHRASE-SALT-V1";
+
+// ── 256 unique words ──────────────────────────────────────────────────────
+export const WORDLIST: readonly string[] = [
+  "abandon",
+  "ability",
+  "able",
+  "about",
+  "above",
+  "absent",
+  "absorb",
+  "abstract",
+  "absurd",
+  "abuse",
+  "access",
+  "accident",
+  "account",
+  "accuse",
+  "achieve",
+  "acid",
+  "acoustic",
+  "acquire",
+  "across",
+  "act",
+  "action",
+  "actor",
+  "actress",
+  "actual",
+  "adapt",
+  "add",
+  "addict",
+  "address",
+  "adjust",
+  "admit",
+  "adult",
+  "advance",
+  "advice",
+  "aerobic",
+  "afford",
+  "afraid",
+  "again",
+  "age",
+  "agent",
+  "agree",
+  "ahead",
+  "aim",
+  "air",
+  "airport",
+  "aisle",
+  "alarm",
+  "album",
+  "alcohol",
+  "alert",
+  "alien",
+  "alley",
+  "allow",
+  "almost",
+  "alone",
+  "alpha",
+  "already",
+  "also",
+  "alter",
+  "always",
+  "amateur",
+  "amazing",
+  "among",
+  "amount",
+  "amused",
+  "analyst",
+  "anchor",
+  "ancient",
+  "anger",
+  "angle",
+  "angry",
+  "animal",
+  "ankle",
+  "announce",
+  "annual",
+  "another",
+  "answer",
+  "antenna",
+  "antique",
+  "anxiety",
+  "apart",
   "apple",
+  "approve",
+  "april",
+  "arch",
+  "arctic",
+  "area",
+  "arena",
+  "argue",
+  "arise",
+  "armor",
+  "army",
+  "around",
+  "arrange",
+  "arrest",
+  "arrow",
+  "artefact",
+  "artist",
+  "artwork",
+  "aspect",
+  "assault",
+  "asset",
+  "assist",
+  "assume",
+  "asthma",
+  "athlete",
+  "atom",
+  "attack",
+  "attend",
+  "attitude",
+  "attract",
+  "auction",
+  "audit",
+  "august",
+  "aunt",
+  "author",
+  "auto",
+  "autumn",
+  "average",
+  "avocado",
+  "avoid",
+  "awake",
+  "aware",
+  "away",
+  "awesome",
+  "awful",
+  "awkward",
+  "axis",
+  "baby",
+  "balance",
+  "bamboo",
+  "banana",
+  "banner",
+  "barely",
+  "bargain",
+  "barrel",
+  "base",
+  "basic",
+  "basket",
+  "battle",
+  "beach",
+  "bean",
+  "beauty",
+  "become",
+  "beef",
+  "begin",
+  "behave",
+  "behind",
+  "believe",
+  "below",
+  "benefit",
+  "best",
+  "betray",
+  "better",
+  "between",
+  "beyond",
+  "bicycle",
+  "bird",
+  "birth",
+  "bitter",
+  "black",
+  "blade",
+  "blame",
+  "blanket",
+  "blast",
+  "bleak",
+  "bless",
+  "blind",
+  "blood",
+  "blossom",
+  "blouse",
+  "blue",
+  "blur",
+  "blush",
+  "board",
+  "boat",
+  "body",
+  "boil",
+  "bomb",
+  "bone",
+  "bonus",
+  "book",
+  "boost",
+  "border",
+  "boring",
+  "borrow",
+  "boss",
+  "bottom",
+  "bounce",
+  "box",
+  "boy",
+  "bracket",
+  "brain",
+  "brand",
   "brave",
-  "cloud",
-  "dance",
-  "eagle",
-  "flame",
-  "grace",
-  "happy",
-  "inner",
-  "jewel",
-  "karma",
-  "light",
-  "magic",
-  "noble",
-  "ocean",
-  "peace",
-  "queen",
-  "radio",
-  "storm",
-  "tiger",
-  "ultra",
-  "vivid",
-  "water",
-  "xenon",
-  "youth",
-  "zebra",
-  "amber",
-  "blaze",
-  "coral",
-  "drift",
-  "ember",
-  "frost",
-  "gloom",
-  "haste",
-  "ivory",
-  "joker",
-  "kneel",
-  "lunar",
-  "maple",
-  "nerve",
-  "onyx",
-  "prism",
-  "quill",
-  "realm",
-  "solar",
-  "torch",
-  "umbra",
-  "valor",
-  "whirl",
-  "xeric",
-  "yearn",
-  "zonal",
-  "acorn",
-  "birch",
-  "cedar",
-  "delta",
-  "equip",
-  "flint",
-  "gravel",
-  "heron",
-  "inlet",
-  "junco",
-  "krill",
-  "larch",
-  "marsh",
-  "notch",
-  "orbit",
-  "pivot",
-  "quartz",
-  "ridge",
-  "slate",
-  "thorn",
-  "uncle",
-  "vault",
-  "wrath",
-  "xylem",
-  "yacht",
-  "zesty",
-  "adobe",
-  "brine",
-  "crest",
-  "depot",
-  "epoch",
-  "flora",
-  "glyph",
-  "haven",
-  "igloo",
-  "joist",
-  "knack",
-  "ledge",
-  "moat",
-  "nymph",
-  "oxide",
-  "plume",
-  "quota",
-  "rover",
-  "scout",
-  "trove",
-  "unity",
-  "visor",
-  "woven",
-  "xerox",
-  "yodel",
-  "zilch",
-  "abyss",
-  "bunny",
-  "crisp",
-  "dwell",
-  "edict",
-  "flair",
-  "guild",
-  "hyena",
-  "imply",
-  "jumpy",
-  "kinky",
-  "lemon",
-  "mercy",
-  "nudge",
-  "ozone",
-  "proxy",
-  "quirk",
-  "raven",
-  "sigma",
-  "tapir",
-  "usage",
-  "venom",
-  "waltz",
-  "xylo",
-  "yucca",
-  "zonal",
-  "argon",
-  "basil",
-  "cacao",
-  "digit",
-  "envoy",
-  "frank",
-  "guava",
-  "hinge",
-  "index",
-  "joust",
-  "kiosk",
-  "lapis",
-  "mocha",
-  "nexus",
-  "optic",
-  "plaid",
-  "query",
-  "rivet",
-  "siege",
-  "toxin",
-  "ulcer",
-  "viola",
-  "width",
-  "xenon",
-  "yeoman",
-  "zircon",
-  "anvil",
-  "boxer",
-  "cobra",
-  "dwarf",
-  "exert",
-  "finch",
-  "gripe",
-  "humid",
-  "inert",
-  "japan",
-  "kanji",
-  "lilac",
-  "minty",
-  "nadir",
-  "offer",
-  "pixel",
-  "quake",
-  "risky",
-  "spine",
-  "talon",
-  "upper",
-  "viper",
-  "widow",
-  "xylem",
-  "yokel",
-  "zingy",
-  "acrid",
-  "blend",
-  "crimp",
-  "dowel",
-  "ethos",
-  "fjord",
-  "guile",
-  "havoc",
-  "ichor",
-  "jinx",
-  "kazoo",
-  "lathe",
-  "manly",
-  "niche",
-  "okapi",
-  "prawn",
-  "quaff",
-  "remit",
-  "swirl",
-  "twirl",
-  "unify",
-  "vouch",
-  "wreak",
-  "yeild",
-  "zappy",
-  "abbot",
-  "botch",
-  "chime",
-  "dirge",
-  "expel",
-  "fangs",
-  "graft",
-  "harpy",
-  "ingot",
-  "joker",
-  "kneel",
-  "lemur",
-  "mango",
-  "notch",
-  "opera",
-  "plunk",
-  "quell",
-  "rupee",
-  "squid",
-  "topaz",
-  "udder",
-  "verge",
-  "whelp",
-  "xenon",
-  "yawl",
-  "zonal",
-  "abhor",
-  "blurt",
-  "cleft",
-  "dross",
-  "eclat",
-  "frond",
-  "grout",
-  "hobby",
-  "iguana",
-  "joust",
-  "kapok",
-  "larch",
-  "moult",
-  "novel",
-  "ochre",
-];
+  "breeze",
+  "brick",
+  "bridge",
+  "brief",
+  "bright",
+  "bring",
+  "brisk",
+  "broccoli",
+  "broken",
+  "bronze",
+  "broom",
+  "brother",
+  "brown",
+  "brush",
+  "bubble",
+  "buddy",
+  "budget",
+  "buffalo",
+  "build",
+  "bulb",
+  "bulk",
+  "bullet",
+  "bundle",
+  "bunker",
+  "burden",
+  "burger",
+  "burst",
+  "bus",
+  "business",
+  "busy",
+  "butter",
+  "buyer",
+  "buzz",
+  "cabbage",
+  "cabin",
+  "cable",
+  "cactus",
+  "cage",
+  "cake",
+  "call",
+  "calm",
+  "camera",
+  "camp",
+  "canal",
+  "cancel",
+  "candy",
+  "cannon",
+  "canvas",
+  "canyon",
+  "capable",
+  "capital",
+  "captain",
+  "carbon",
+  "card",
+] as const;
 
-/**
- * 32-byte random key → 24-word recovery phrase
- * প্রতি 11 bits → 1 word (BIP39 standard)
- * 32 bytes = 256 bits → 256/11 ≈ 23.27 → 24 words (শেষ word এ checksum)
- */
-function keyToPhrase(keyBytes: Uint8Array): string {
-  // Simple encoding: প্রতি byte কে দুটো word এ map (16 bytes → 16 words for simplicity)
-  // Production এ proper BIP39 bit-manipulation ব্যবহার করো
-  const words: string[] = [];
-  for (let i = 0; i < 24; i++) {
-    const idx = (keyBytes[i] ^ keyBytes[(i + 8) % 32]) % WORDLIST.length;
-    words.push(WORDLIST[idx]);
-  }
-  return words.join(" ");
+// ── 24 random bytes → phrase ──────────────────────────────────────────────
+function bytesToPhrase(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => WORDLIST[b])
+    .join(" ");
 }
 
-/**
- * 24-word phrase → original 32-byte key
- * keyToPhrase এর exact reverse।
- */
-function phraseToKey(phrase: string, originalKeyBytes: Uint8Array): Uint8Array {
-  // Note: Real BIP39 এ phrase থেকেই key recover হয়।
-  // এখানে phrase টা verification এর জন্য — actual key টা
-  // server থেকে আসে (Master Key দিয়ে decrypt করে)।
-  // Recovery phrase ব্যবহার হয় শুধু যখন server এর
-  // encrypted backup ও নেই (complete loss scenario)।
-  //
-  // Production এ: BIP39 mnemonic → seed → HKDF → BackupKey
-  // সেই ক্ষেত্রে phraseToKey সরাসরি key বের করতে পারবে।
-  return originalKeyBytes; // placeholder — নিচে BackupManager.recoverFromPhrase দেখো
+// ── phrase → deterministic 32-byte raw key ────────────────────────────────
+async function phraseToRawBytes(phrase: string): Promise<Uint8Array> {
+  const phraseKey = await subtle().importKey(
+    "raw",
+    textEnc(phrase.trim().toLowerCase()) as unknown as BufferSource,
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await subtle().deriveBits(
+    {
+      name: "PBKDF2",
+      salt: textEnc(FIXED_PHRASE_SALT) as unknown as BufferSource,
+      iterations: 310_000,
+      hash: "SHA-256",
+    },
+    phraseKey,
+    256,
+  );
+  return new Uint8Array(bits);
 }
 
-// ── Stored backup types ────────────────────────────────────────────────────
+// ── phrase validate ───────────────────────────────────────────────────────
+function _validatePhrase(phrase: string): {
+  valid: boolean;
+  invalidWords: string[];
+} {
+  const words = phrase.trim().toLowerCase().split(/\s+/);
+  const invalidWords = words.filter(
+    (w) => !(WORDLIST as readonly string[]).includes(w),
+  );
+  return {
+    valid: words.length === 24 && invalidWords.length === 0,
+    invalidWords,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Public Types
+// ══════════════════════════════════════════════════════════════════════════
+
 export interface EncryptedBackupKey {
-  ctB64: string; // BackupKey encrypted with MasterKey
+  ctB64: string; // rawBackupBytes encrypted with MasterKey
   ivB64: string;
 }
 
 export interface EncryptedChatKey {
   chatId: string;
-  ctB64: string; // ChatKey encrypted with BackupKey
+  ctB64: string; // ChatKey raw bits encrypted with BackupKey
   ivB64: string;
 }
 
-export interface BackupBundle {
-  encBackupKey: EncryptedBackupKey; // server এ save হবে
-  encChatKeys: Record<string, EncryptedChatKey>; // chatId → encrypted ChatKey
-}
+// ══════════════════════════════════════════════════════════════════════════
+// BackupManager
+// ══════════════════════════════════════════════════════════════════════════
 
-// ── Main BackupManager ─────────────────────────────────────────────────────
 export class BackupManager {
-  // ══════════════════════════════════════════════════════════════════════════
-  // Registration — একবারই call করবে
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // createBackupKey
+  // Registration এ একবার call করো
+  // ════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Registration এর সময় call করো।
-   * Returns:
-   *   backupKey       — memory তে রাখো (session এর জন্য)
-   *   recoveryPhrase  — user কে দেখাও, লিখে রাখতে বলো
-   *   encBackupKey    — server এ save করো
-   */
   static async createBackupKey(masterKey: CryptoKey): Promise<{
     backupKey: CryptoKey;
     recoveryPhrase: string;
     encBackupKey: EncryptedBackupKey;
   }> {
-    // ── 1. Random 32-byte BackupKey বানাও ──────────────────────────────
-    const rawBytes = rand(32);
-    const backupKey = await importAesKey(rawBytes, [
+    // 1. 24 random bytes → phrase
+    const phraseBytes = rand(24);
+    const recoveryPhrase = bytesToPhrase(phraseBytes);
+
+    // 2. phrase → rawBackupBytes (deterministic — recovery এ same আসবে)
+    const rawBackupBytes = await phraseToRawBytes(recoveryPhrase);
+
+    // 3. rawBackupBytes → BackupKey
+    const backupKey = await importAesKey(rawBackupBytes, [
       "encrypt",
       "decrypt",
       "wrapKey",
       "unwrapKey",
     ]);
 
-    // ── 2. Recovery Phrase বানাও (user কে দেখাবে) ──────────────────────
-    const recoveryPhrase = keyToPhrase(rawBytes);
+    // 4. rawBackupBytes → MasterKey দিয়ে encrypt → server এ save করো
+    //    normal login এ phrase PBKDF2 এড়ানো যাবে (fast unlock)
+    const encBackupKey = await aesEncrypt(masterKey, rawBackupBytes);
 
-    // ── 3. BackupKey কে MasterKey দিয়ে encrypt করো (server এ যাবে) ────
-    const { ctB64, ivB64 } = await aesEncrypt(masterKey, rawBytes);
-
-    return {
-      backupKey,
-      recoveryPhrase,
-      encBackupKey: { ctB64, ivB64 },
-    };
+    return { backupKey, recoveryPhrase, encBackupKey };
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Login — প্রতিবার login এ call করবে
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // restoreBackupKey
+  // Normal Login এ — PIN আছে, server থেকে encBackupKey এনে decrypt করো
+  // ════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Server থেকে আসা encBackupKey কে MasterKey দিয়ে decrypt করে
-   * BackupKey memory তে restore করো।
-   */
   static async restoreBackupKey(
     masterKey: CryptoKey,
     encBackupKey: EncryptedBackupKey,
   ): Promise<CryptoKey> {
-    const rawBytes = await aesDecrypt(
+    const rawBackupBytes = await aesDecrypt(
       masterKey,
       encBackupKey.ctB64,
       encBackupKey.ivB64,
     );
-    return importAesKey(rawBytes, [
+    return importAesKey(rawBackupBytes, [
       "encrypt",
       "decrypt",
       "wrapKey",
@@ -452,95 +456,72 @@ export class BackupManager {
     ]);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PIN ভুলে গেলে — Recovery Phrase দিয়ে restore
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // recoverFromPhrase
+  // PIN ভুলে গেলে — Phrase দিয়ে BackupKey directly recover করো
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // আগের version এ rand(32) ব্যবহার করছিল — সেটা ভুল ছিল।
+  // এখন phrase → PBKDF2 → same rawBackupBytes → same BackupKey।
+  // Server লাগে না।
 
-  /**
-   * User Recovery Phrase দিলে BackupKey বের করো।
-   * তারপর নতুন PIN দিয়ে MasterKey বানাও এবং BackupKey re-encrypt করো।
-   *
-   * Note: Production এ BIP39 ব্যবহার করলে phrase থেকেই
-   * deterministically BackupKey বের হবে।
-   * এখানে server থেকে আসা encrypted backup কে phrase দিয়ে
-   * verify করার flow দেখানো হচ্ছে।
-   */
   static async recoverFromPhrase(
     recoveryPhrase: string,
     newMasterKey: CryptoKey,
-    encBackupKey: EncryptedBackupKey, // server এ আছে, পুরনো master key দরকার নেই
   ): Promise<{
     backupKey: CryptoKey;
-    newEncBackupKey: EncryptedBackupKey; // নতুন MasterKey দিয়ে re-encrypt — server এ update করো
+    newEncBackupKey: EncryptedBackupKey;
   }> {
-    // Production BIP39 flow:
-    //   phrase → mnemonic seed → HKDF → rawBackupKeyBytes → backupKey
-    //
-    // এখানের simplified flow:
-    //   phrase word গুলো থেকে index বের করো → raw bytes reconstruct করো
-    const words = recoveryPhrase.trim().split(/\s+/);
-    if (words.length !== 24)
-      throw new Error("Recovery phrase must be exactly 24 words");
-
-    // Validate করো — সব word WORDLIST এ আছে কিনা
-    for (const word of words) {
-      if (!WORDLIST.includes(word))
-        throw new Error(`Invalid word in recovery phrase: "${word}"`);
+    // 1. Validate
+    const { valid, invalidWords } = _validatePhrase(recoveryPhrase);
+    if (!valid) {
+      throw new Error(
+        invalidWords.length > 0
+          ? `ভুল word: ${invalidWords.slice(0, 3).join(", ")}`
+          : "Recovery phrase অবশ্যই 24 word হতে হবে",
+      );
     }
 
-    // Note: Real implementation এ phrase → deterministic key।
-    // এই demo তে server এর encrypted backup থেকে নতুন master দিয়ে
-    // একটা নতুন backup key বানিয়ে দিচ্ছি।
-    // Production এ phrase টাই key হবে।
-    const rawBytes = rand(32); // ← production এ phrase থেকে derive করবে
-    const backupKey = await importAesKey(rawBytes, [
+    // 2. phrase → rawBackupBytes (registration এর মতো same result)
+    const rawBackupBytes = await phraseToRawBytes(recoveryPhrase);
+
+    // 3. BackupKey বানাও
+    const backupKey = await importAesKey(rawBackupBytes, [
       "encrypt",
       "decrypt",
       "wrapKey",
       "unwrapKey",
     ]);
 
-    // নতুন MasterKey দিয়ে re-encrypt
-    const { ctB64, ivB64 } = await aesEncrypt(newMasterKey, rawBytes);
+    // 4. নতুন MasterKey দিয়ে re-encrypt → server এ update করো
+    const newEncBackupKey = await aesEncrypt(newMasterKey, rawBackupBytes);
 
-    return {
-      backupKey,
-      newEncBackupKey: { ctB64, ivB64 },
-    };
+    return { backupKey, newEncBackupKey };
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Chat Key Backup — নতুন chat শুরু হলে
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // backupChatKeyRaw
+  // নতুন chat শুরু হলে — ChatKey এর raw bits backup করো
+  // ════════════════════════════════════════════════════════════════════════
+  //
+  // HKDF key directly export করা যায় না।
+  // SessionManager.deriveChatKeyHKDF কে modify করো যাতে raw bits ও return করে।
+  // সেই raw bits এখানে দাও।
 
-  /**
-   * নতুন chat শুরু হলে Chat Key টা BackupKey দিয়ে encrypt করে
-   * server এ save করো।
-   *
-   * একবারই করতে হবে প্রতি chat এর জন্য।
-   * Message পাঠানোর সময় প্রতিবার করতে হবে না।
-   */
-  static async backupChatKey(
+  static async backupChatKeyRaw(
     backupKey: CryptoKey,
-    chatKey: CryptoKey,
+    rawChatKeyBits: Uint8Array, // 32 bytes — HKDF derivation output
     chatId: string,
   ): Promise<EncryptedChatKey> {
-    // ChatKey export করো (HKDF key, তাই raw bits হিসেবে)
-    const rawChatKey = await exportAesKey(chatKey);
-
-    const { ctB64, ivB64 } = await aesEncrypt(backupKey, rawChatKey);
-
+    const { ctB64, ivB64 } = await aesEncrypt(backupKey, rawChatKeyBits);
     return { chatId, ctB64, ivB64 };
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Chat Key Restore — Login এ সব chat key ফিরিয়ে আনো
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // restoreAllChatKeys
+  // Login এ — server থেকে সব encChatKey নামিয়ে restore করো
+  // ════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Server থেকে সব encrypted ChatKey নামিয়ে BackupKey দিয়ে decrypt করো।
-   * Returns: chatId → CryptoKey map — memory তে রাখো (Zustand)
-   */
   static async restoreAllChatKeys(
     backupKey: CryptoKey,
     encChatKeys: EncryptedChatKey[],
@@ -549,11 +530,8 @@ export class BackupManager {
 
     await Promise.all(
       encChatKeys.map(async ({ chatId, ctB64, ivB64 }) => {
-        const rawBytes = await aesDecrypt(backupKey, ctB64, ivB64);
-        const chatKey = await importAesKey(rawBytes, [
-          "deriveKey",
-          "deriveBits",
-        ]);
+        const rawBits = await aesDecrypt(backupKey, ctB64, ivB64);
+        const chatKey = await importHkdfKey(rawBits);
         chatKeyMap.set(chatId, chatKey);
       }),
     );
@@ -561,40 +539,51 @@ export class BackupManager {
     return chatKeyMap;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PIN Change — BackupKey re-encrypt করো নতুন MasterKey দিয়ে
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // reEncryptBackupKey
+  // PIN change হলে — BackupKey same, শুধু নতুন MasterKey দিয়ে re-wrap
+  // ════════════════════════════════════════════════════════════════════════
 
-  /**
-   * User PIN change করলে BackupKey টা নতুন MasterKey দিয়ে re-encrypt করো।
-   * ChatKey গুলো আবার backup করতে হবে না — BackupKey same আছে।
-   */
   static async reEncryptBackupKey(
     backupKey: CryptoKey,
     newMasterKey: CryptoKey,
   ): Promise<EncryptedBackupKey> {
     const rawBytes = await exportAesKey(backupKey);
-    const { ctB64, ivB64 } = await aesEncrypt(newMasterKey, rawBytes);
-    return { ctB64, ivB64 };
+    return aesEncrypt(newMasterKey, rawBytes);
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // Recovery Phrase Verify — user লেখা phrase ঠিক আছে কিনা check
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════════════
+  // verifyPhrase
+  // Registration এ user phrase confirm করলে — wordlist check
+  // ════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Registration এর পর user phrase লিখে confirm করলে verify করো।
-   * শুধু word validation — server call লাগবে না।
-   */
   static verifyPhrase(phrase: string): {
     valid: boolean;
     invalidWords: string[];
   } {
-    const words = phrase.trim().toLowerCase().split(/\s+/);
-    const invalidWords = words.filter((w) => !WORDLIST.includes(w));
-    return {
-      valid: words.length === 24 && invalidWords.length === 0,
-      invalidWords,
-    };
+    return _validatePhrase(phrase);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // phraseToBackupKey
+  // Recovery page এ standalone — শুধু ChatKey restore করতে চাইলে
+  // ════════════════════════════════════════════════════════════════════════
+
+  static async phraseToBackupKey(recoveryPhrase: string): Promise<CryptoKey> {
+    const { valid, invalidWords } = _validatePhrase(recoveryPhrase);
+    if (!valid) {
+      throw new Error(
+        invalidWords.length > 0
+          ? `ভুল word: ${invalidWords.slice(0, 3).join(", ")}`
+          : "24-word phrase দরকার",
+      );
+    }
+    const rawBytes = await phraseToRawBytes(recoveryPhrase);
+    return importAesKey(rawBytes, [
+      "encrypt",
+      "decrypt",
+      "wrapKey",
+      "unwrapKey",
+    ]);
   }
 }
