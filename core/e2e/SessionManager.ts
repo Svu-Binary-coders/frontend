@@ -12,7 +12,7 @@ async function sha256(data: Uint8Array): Promise<Uint8Array> {
 }
 
 export class SessionManager {
-  // ── Tier 1: Root Shared Key (ECDH) ───────────────────────────────────────
+  //  Tier 1: Root Shared Key (ECDH) 
   /**
    *
    * @param myPrivateKey This is your private key (should be generated and stored securely, e.g. in IndexedDB)
@@ -34,7 +34,7 @@ export class SessionManager {
     ]);
   }
 
-  // ── Tier 2: Chat Key (per chatId, HKDF) ──────────────────────────────────
+  //  Tier 2: Chat Key (per chatId, HKDF) 
   static async deriveChatKeyHKDF(
     rootKey: CryptoKey,
     chatId: string,
@@ -56,7 +56,7 @@ export class SessionManager {
     ]);
   }
 
-  // ── Tier 3: Message Key (per timestamp, O(1)) ─────────────────────────────
+  //  Tier 3: Message Key (per timestamp, O(1)) 
   static async deriveMessageKey(
     chatKey: CryptoKey,
     timestamp: number,
@@ -76,16 +76,8 @@ export class SessionManager {
     );
   }
 
-  // ── ChatId builder ────────────────────────────────────────────────────────
-  static async buildChatId(...userIds: string[]): Promise<string> {
-    const sorted = [...userIds].sort().join(":");
-    const hash = await sha256(enc(sorted));
-    return Array.from(hash)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
 
-  // ── Session bootstrap (convenience) ──────────────────────────────────────
+  //  Session bootstrap (convenience) 
   static async bootstrapSession(
     myPrivateKey: CryptoKey,
     peerPublicKeyB64: string,

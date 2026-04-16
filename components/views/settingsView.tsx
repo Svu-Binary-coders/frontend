@@ -25,6 +25,7 @@ import { Sequrity } from "../settings/Security";
 import { DataAndStorage } from "../settings/DataAndStorage";
 import { Help } from "../settings/Help";
 import Accounts from "../settings/Accounts";
+import ChatLock from "../settings/ChatLock";
 
 type SettingSection =
   | "profile"
@@ -94,6 +95,8 @@ function SettingsContent({
         return <DataAndStorage />;
       case "help":
         return <Help />;
+      case "chat-lock":
+        return <ChatLock/>;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-64 opacity-20">

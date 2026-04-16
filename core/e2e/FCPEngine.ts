@@ -73,7 +73,6 @@ export class FCPEngine {
       chatId,
       flags,
       conditions: options.conditions ?? "NONE",
-      // isViewOnce মানে BURN — seen করার 10 সেকেন্ড পর auto-delete
       ttlSeconds: options.isViewOnce ? 10 : undefined,
     });
   }

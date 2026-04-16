@@ -7,6 +7,7 @@ import { useChatStore } from "@/stores/chatStore";
 export const useContacts = (userId: string) => {
   const query = useQuery({
     queryKey: ["contacts", userId],
+     networkMode:"offlineFirst",
     queryFn: async () => {
       const res = await fetch(`${API_URL}/chats/${userId}/contacts`);
       const data = await res.json();
@@ -15,6 +16,7 @@ export const useContacts = (userId: string) => {
     },
     enabled: !!userId,
     staleTime: 1000 * 60 * 60, // 1 hour
+    meta: { persist: true },
   });
 
   useEffect(() => {

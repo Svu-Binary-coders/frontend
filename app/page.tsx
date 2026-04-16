@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import Image from "next/image";
 
 //  Types 
 
@@ -97,7 +98,7 @@ const CHAT_MESSAGES: ChatMessage[] = [
   },
   {
     name: "Sarah K.",
-    msg: "Yes! Zero-knowledge proof 🔐",
+    msg: "Yes! Zero-knowledge proof",
     time: "9:42",
     out: false,
     color: "#0891b2",
@@ -133,7 +134,7 @@ function Navbar() {
         {/* Logo */}
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center">
-            <Shield size={18} className="text-white" strokeWidth={2.5} />
+            <Image src="/logo.png" height={75} width={75} className="rounded-2xl" alt="Logo" />
           </div>
           <span className="font-extrabold text-lg text-blue-900 tracking-tight">
             CipherTalk

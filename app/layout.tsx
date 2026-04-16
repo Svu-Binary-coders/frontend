@@ -28,11 +28,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script src="/process.js" strategy="beforeInteractive" />
+      </head>
       <body
         className={`${poppins.variable} ${inter.variable} ${rajdhani.variable} antialiased`}
       >
         <Providers>{children}</Providers>
-        <Script src="/process.js" strategy="beforeInteractive" />
       </body>
     </html>
   );
