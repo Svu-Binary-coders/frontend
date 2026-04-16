@@ -205,7 +205,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     set((state) => ({
       contacts: state.contacts.map((c) =>
         c.customChatId === customChatId
-          ? { ...c, isChatLock: !c.ischatLock }
+          ? { ...c, isChatLock: !c.isChatLock }
           : c,
       ),
     })),
@@ -321,21 +321,17 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
   //  Socket init
   initSocket: () => {
+    const existing = get().socket;
+    if (existing) {
+      existing.disconnect();
+      existing.removeAllListeners();
+    }
+
     const socket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionDelay: 1000,
     });
     set({ socket });
-
-    socket.on("connect", () => {
-      const myId = useAuthStore.getState().myId;
-      if (myId) socket.emit("setup", myId);
-      set({ isConnected: true });
-    });
-
-    socket.on("disconnect", () => {
-      set({ isConnected: false });
-    });
 
     //  Receive message
     socket.on("receive_private_message", (data: Message) => {
@@ -695,7 +691,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     };
 
     set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
-    // last page-এ temp message যোগ করো
     updateMessagesCache(chatId, (old) => [...old, tempMsg]);
 
     socket?.emit(
@@ -734,7 +729,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
               ),
           }));
 
-          // temp → real message replace
           updateMessagesCache(chatId, (old) =>
             old.map((m) => (m._id === tempId ? sentMsg : m)),
           );
@@ -860,36 +854,84 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         break;
     }
   },
-
-  //  handleForward
   handleForward: (contactId: string) => {
-    const { forwardMsg, socket, activeContact } = get();
+    const { forwardMsg, socket, activeContact, contacts } = get();
     const myId = useAuthStore.getState().myId;
 
     if (!forwardMsg || !myId) return;
+
+    const targetContact = contacts.find((c) => c._id === contactId);
+    const content = forwardMsg.content;
+    const now = new Date().toISOString();
+
     socket?.emit(
-      "forward_message",
+      "send_message",
       {
-        messageId: forwardMsg._id,
         receiverId: contactId,
-        content: forwardMsg.content,
+        content,
+        isForwarded: true,
       },
       (res: any) => {
-        if (res?.success && contactId === activeContact?._id) {
-          const fwdMsg: Message = {
+        if (res?.success) {
+          const sentMsg: Message = {
             ...res.data,
             senderId: myId,
             status: MessageStatus.SENT,
+            isForwarded: true,
           };
-          set((s) => ({ messages: [...s.messages, fwdMsg] }));
-          if (activeContact?.customChatId)
-            updateMessagesCache(activeContact.customChatId, (old) => [
+
+          set((s) => ({
+            messages:
+              activeContact?._id === contactId
+                ? [...s.messages, sentMsg]
+                : s.messages,
+
+            contacts: s.contacts
+              .map((c) =>
+                c._id === contactId
+                  ? {
+                      ...c,
+                      lastMessage: { content, createdAt: now },
+                    }
+                  : c,
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.lastMessage?.createdAt || 0).getTime() -
+                  new Date(a.lastMessage?.createdAt || 0).getTime(),
+              ),
+          }));
+
+          // target contact-এর chat cache update
+          if (targetContact?.customChatId) {
+            updateMessagesCache(targetContact.customChatId, (old) => [
               ...old,
-              fwdMsg,
+              sentMsg,
             ]);
+          }
+
+          // QueryClient contacts cache-ও update
+          getQueryClient().setQueryData(
+            ["contacts"],
+            (old: Contact[] | undefined) => {
+              if (!old) return old;
+              return old
+                .map((c) =>
+                  c._id === contactId
+                    ? { ...c, lastMessage: { content, createdAt: now } }
+                    : c,
+                )
+                .sort(
+                  (a, b) =>
+                    new Date(b.lastMessage?.createdAt || 0).getTime() -
+                    new Date(a.lastMessage?.createdAt || 0).getTime(),
+                );
+            },
+          );
         }
       },
     );
+
     set({ forwardMsg: null });
   },
 

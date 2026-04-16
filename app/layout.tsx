@@ -3,6 +3,7 @@ import { Poppins, Inter, Rajdhani } from "next/font/google";
 import "../styles/globals.css";
 import "../styles/custom.css";
 import Providers from "./providers";
+import Script from "next/script";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -31,6 +32,7 @@ export default function RootLayout({
         className={`${poppins.variable} ${inter.variable} ${rajdhani.variable} antialiased`}
       >
         <Providers>{children}</Providers>
+        <Script src="/process.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

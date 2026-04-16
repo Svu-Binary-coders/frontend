@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import axiosInstance from "@/lib/axios";
+import { isAxiosError } from "axios";
 import { toast } from "sonner";
 import Cropper from "react-easy-crop";
 import { getCroppedImg } from "@/lib/cropImage";
@@ -47,8 +48,10 @@ function readFile(file: File) {
 async function updateProfile(data: {
   userName?: string;
   location?: { city?: string; country?: string };
+  bio?: string;
+  website?: string;
 }) {
-  const res = await axiosInstance.post("/user/profile", data);
+  const res = await axiosInstance.patch("/auth/update-profile", data);
   return res.data;
 }
 
@@ -390,7 +393,16 @@ export default function Profile() {
       });
       toast.success("Profile updated");
     },
-    onError: () => toast.error("Failed to update profile"),
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.response?.data?.msg ||
+        error?.message ||
+        "Failed to update profile";
+
+      toast.error(message);
+    },
   });
 
   const uploadMutation = useMutation({
@@ -411,7 +423,10 @@ export default function Profile() {
 
       toast.success(data.message || "Avatar updated");
     },
-    onError: () => toast.error("Upload failed"),
+    onError: (error: any) => {
+      const message = error?.response?.data?.message || "Upload failed";
+      toast.error(message);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -433,6 +448,34 @@ export default function Profile() {
     },
     onError: () => toast.error("Delete failed"),
   });
+
+  const checkValidWebsite = (url: string) => {
+    if (!url || url.trim() === "") return true;
+    let urlToTest = url.trim();
+
+    if (!/^https?:\/\//i.test(urlToTest)) {
+      urlToTest = `https://${urlToTest}`;
+    }
+
+    try {
+      const validUrl = new URL(urlToTest);
+      const domainRegex = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+      const isValid =
+        (validUrl.protocol === "http:" || validUrl.protocol === "https:") &&
+        domainRegex.test(validUrl.hostname);
+
+      if (!isValid) {
+        toast.error("Please enter a valid URL (e.g., example.com)");
+        return false;
+      }
+
+      return true;
+    } catch {
+      toast.error("Please enter a valid URL (e.g., example.com)");
+      return false;
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -535,6 +578,55 @@ export default function Profile() {
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Bio */}
+        <div className="space-y-1.5">
+          <EditableField
+            label="Bio"
+            value={myDetails?.bio || ""}
+            placeholder="Tell us about yourself"
+            onSave={(val) => updateMutation.mutate({ bio: val })}
+          />
+        </div>
+        {/* website */}
+        <div className="space-y-1.5">
+          <EditableField
+            label="Website"
+            value={myDetails?.website || ""}
+            placeholder="Add website"
+            onSave={(val) => {
+              if (val && !checkValidWebsite(val)) {
+                return;
+              }
+              updateMutation.mutate({ website: val });
+            }}
+            // add view button if website exists
+          />
+
+          {myDetails?.website && (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => {
+                const baseUrl = /^https?:\/\//i.test(myDetails.website!)
+                  ? myDetails.website
+                  : `https://${myDetails.website}`;
+
+                try {
+                  const finalUrl = new URL(baseUrl as string);
+                  finalUrl.searchParams.set("utm_source", "my_chat_app");
+                  finalUrl.searchParams.set("utm_medium", "profile_panel");
+
+                  window.open(finalUrl.toString(), "_blank");
+                } catch (e) {
+                  window.open(baseUrl, "_blank");
+                }
+              }}
+            >
+              View Website
+            </Button>
+          )}
         </div>
 
         {/* Location */}

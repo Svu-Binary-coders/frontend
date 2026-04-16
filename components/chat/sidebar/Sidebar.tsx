@@ -23,7 +23,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useContacts } from "@/hooks/useContacts";
 import { useAuthStore } from "@/stores/authStore";
 import { useRouter } from "next/navigation";
-
+import { getNameFallback } from "@/utils/getNameFallback";
 const TABS = [
   { key: "all", label: "All", icon: Inbox },
   { key: "unread", label: "Unread", icon: MessageSquare },
@@ -94,7 +94,8 @@ export default function Sidebar() {
           <Avatar className="w-9 h-9 ring-2 ring-emerald-400/40 ring-offset-1 ring-offset-white dark:ring-offset-[#0d1117]">
             <AvatarImage src={authData?.profilePicture} alt="Profile" />
             <AvatarFallback className="bg-gradient-to-br from-sky-400 to-indigo-500 text-white text-xs font-bold">
-              {authData?.userName?.substring(0, 2).toUpperCase() || "?"}
+              {/* show first name + last name first letters */}
+              {getNameFallback(authData?.userName)}
             </AvatarFallback>
           </Avatar>
           {/* Pulse dot */}

@@ -23,6 +23,8 @@ export default function ChatHeader({
     useChatStore.setState({ activeContact: null });
   };
 
+  
+
   return (
     <header className="flex items-center gap-3 px-5 py-3 bg-white dark:bg-slate-900 border-b border-slate-100 shrink-0 h-[65px]">
       <button

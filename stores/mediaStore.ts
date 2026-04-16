@@ -4,6 +4,7 @@ import { create } from "zustand";
 import api from "@/lib/axios";
 import { API_URL } from "@/lib/chat-helpers";
 import { MessageStatus, StorageProvider } from "@/types/chat";
+import { getWasmEngine, getFreshHeap } from "@/lib/wasm/index"; // 🔴 Manager ইম্পোর্ট
 
 export type AttachmentType = "image" | "video" | "audio" | "file";
 
@@ -17,10 +18,10 @@ export interface SelectedMedia {
 export interface UploadingMedia {
   id: string;
   type: AttachmentType;
-  previewUrl: string; // blob URL — matching key
+  previewUrl: string;
   name: string;
   size: number;
-  progress: number; // 0-100
+  progress: number;
   done: boolean;
 }
 
@@ -67,7 +68,63 @@ const SIZE_LIMITS: Record<AttachmentType, number> = {
 
 const MAX_FILES = 5;
 
-//  XHR upload — withCredentials + upload progress
+// ─── 🔴 Updated WASM Image Compression with Manager ────────────────────────
+const compressWithWasm = async (
+  file: File,
+  quality: number = 75,
+): Promise<File> => {
+  const wasm = getWasmEngine();
+
+  if (!wasm) {
+    console.warn("Wasm Engine not fully ready. Returning original file.");
+    return file;
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    const inputPtr = wasm._malloc(uint8Array.length);
+
+    let heap = getFreshHeap(wasm);
+    heap.set(uint8Array, inputPtr);
+
+    const success = wasm._process_image_wasm(
+      inputPtr,
+      uint8Array.length,
+      quality 
+    );
+
+    if (success === 1) {
+      const outPtr = wasm._get_out_data();
+      const outSize = wasm._get_out_size();
+
+      heap = getFreshHeap(wasm);
+      const heapView = new Uint8Array(heap.buffer, outPtr, outSize);
+      const resultBytes = new Uint8Array(outSize);
+      resultBytes.set(heapView);
+
+      const compressedFile = new File([resultBytes], file.name, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+
+      wasm._free_out();
+      wasm._free(inputPtr);
+
+      return compressedFile;
+    } else {
+      wasm._free(inputPtr);
+      return file;
+    }
+  } catch (err) {
+    console.error("Wasm compression error:", err);
+    return file;
+  }
+};
+// ────────────────────────────────────────────────────────────────────────────
+
+// XHR upload — withCredentials + upload progress
 function xhrUpload(
   url: string,
   body: FormData | File | Blob,
@@ -87,10 +144,7 @@ function xhrUpload(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open(method, url);
-
-    if (!skipCredentials) {
-      xhr.withCredentials = true; // cookie auto-attach
-    }
+    if (!skipCredentials) xhr.withCredentials = true;
 
     Object.entries(extraHeaders).forEach(([k, v]) =>
       xhr.setRequestHeader(k, v),
@@ -120,12 +174,11 @@ function xhrUpload(
     };
 
     xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.ontimeout = () => reject(new Error("Upload timed out"));
     xhr.send(body);
   });
 }
 
-//  Single file upload
+// Single file upload
 async function uploadSingle(
   media: SelectedMedia,
   onProgress?: (pct: number) => void,
@@ -185,7 +238,6 @@ async function uploadSingle(
     };
   }
 
-  // Audio / File → Supabase
   const fileType = type === "audio" ? "audio" : "file";
   const signRes = await api.post(`${API_URL}/uploads/sign-supabase`, {
     fileName: file.name,
@@ -212,14 +264,12 @@ async function uploadSingle(
   };
 }
 
-//  Store
 interface MediaState {
   selectedMedias: SelectedMedia[];
   uploadingMedias: UploadingMedia[];
   isUploading: boolean;
   uploadError: string | null;
-
-  addFiles: (files: File[]) => { ok: boolean; error?: string };
+  addFiles: (files: File[]) => Promise<{ ok: boolean; error?: string }>;
   removeFile: (id: string) => void;
   clearMedia: () => void;
   uploadAndConfirm: (
@@ -237,7 +287,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   isUploading: false,
   uploadError: null,
 
-  addFiles: (files) => {
+  addFiles: async (files) => {
     const { selectedMedias } = get();
     if (selectedMedias.length + files.length > MAX_FILES) {
       return { ok: false, error: `Max ${MAX_FILES} files allowed` };
@@ -246,17 +296,31 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     const errors: string[] = [];
     const valid: SelectedMedia[] = [];
 
-    for (const file of files) {
-      const type = detectType(file);
+    for (const originalFile of files) {
+      const type = detectType(originalFile);
+      let processedFile = originalFile;
+
+      if (type === "image") {
+        // 🔴 আমরা এখন আমাদের নতুন কম্প্রেস ফাংশনটি কল করছি
+        processedFile = await compressWithWasm(originalFile, 80); // ৮০ কোয়ালিটি ব্যবহার করা হচ্ছে
+      }
+
+      console.log(
+        `File: ${originalFile.name} | Before: ${(originalFile.size / 1024).toFixed(2)} KB | After: ${(processedFile.size / 1024).toFixed(2)} KB`,
+      );
+
       const limit = SIZE_LIMITS[type];
-      if (file.size > limit) {
-        errors.push(`${file.name}: too large (max ${limit / 1024 / 1024}MB)`);
+      if (processedFile.size > limit) {
+        errors.push(
+          `${processedFile.name}: too large (max ${limit / 1024 / 1024}MB)`,
+        );
         continue;
       }
+
       valid.push({
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-        file,
-        previewUrl: type === "image" ? URL.createObjectURL(file) : "",
+        file: processedFile,
+        previewUrl: type === "image" ? URL.createObjectURL(processedFile) : "",
         type,
       });
     }
@@ -294,7 +358,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       isTemp: true,
       content: text,
       attachments: snapshot.map((m) => ({
-        url: m.previewUrl, // blob URL
+        url: m.previewUrl,
         type: m.type,
         name: m.file.name,
         size: m.file.size,

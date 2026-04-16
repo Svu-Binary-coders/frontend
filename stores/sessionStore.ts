@@ -1,13 +1,12 @@
-
-
 import { create } from "zustand";
+import { SessionManager } from "@/core/e2e/SessionManager";
 
 interface SessionState {
   userId: string;
-  privateKey: CryptoKey | null; // ECDH — chat key বানাতে লাগবে
-  signingKey: CryptoKey | null; // HMAC — message sign করতে লাগবে
-  backupKey: CryptoKey | null; // নতুন chat এর ChatKey backup এ লাগবে
-  chatKeyMap: Map<string, CryptoKey>; // chatId → ChatKey
+  privateKey: CryptoKey | null;
+  signingKey: CryptoKey | null;
+  backupKey: CryptoKey | null;
+  chatKeyMap: Map<string, CryptoKey>;
 }
 
 interface SessionActions {
@@ -16,8 +15,11 @@ interface SessionActions {
       chatKeyMap?: Map<string, CryptoKey>;
     },
   ) => void;
+  
+  addContact: (customChatId: string, peerPublicKeyB64: string) => Promise<void>;
   setChatKey: (chatId: string, key: CryptoKey) => void;
   getChatKey: (chatId: string) => CryptoKey | undefined;
+  removeContact: (chatId: string) => void;
   clearSession: () => void;
 }
 
@@ -33,7 +35,6 @@ export const useSessionStore = create<SessionState & SessionActions>(
   (set, get) => ({
     ...initialState,
 
-    // Login success এ পুরো session set করো
     setSession: (data) =>
       set({
         userId: data.userId,
@@ -43,7 +44,31 @@ export const useSessionStore = create<SessionState & SessionActions>(
         chatKeyMap: data.chatKeyMap ?? new Map(),
       }),
 
-    // নতুন chat শুরু হলে ChatKey cache এ রাখো
+   
+    addContact: async (customChatId, peerPublicKeyB64) => {
+      const { privateKey, chatKeyMap, setChatKey } = get();
+
+      if (!privateKey) {
+        console.error("Privet key does not exist. Cannot create chat key.");
+        return;
+      }
+
+      if (chatKeyMap.has(customChatId)) return;
+
+      try {
+        const { getChatKey } = await SessionManager.bootstrapSession(
+          privateKey,
+          peerPublicKeyB64,
+        );
+
+        const chatKey = await getChatKey(customChatId);
+
+        setChatKey(customChatId, chatKey);
+      } catch (error) {
+        console.error(`${customChatId} does not exist:`, error);
+      }
+    },
+
     setChatKey: (chatId, key) =>
       set((state) => {
         const next = new Map(state.chatKeyMap);
@@ -51,10 +76,15 @@ export const useSessionStore = create<SessionState & SessionActions>(
         return { chatKeyMap: next };
       }),
 
-    // ChatKey বের করো
     getChatKey: (chatId) => get().chatKeyMap.get(chatId),
 
-    // Logout
+    removeContact: (chatId) =>
+      set((state) => {
+        const next = new Map(state.chatKeyMap);
+        next.delete(chatId);
+        return { chatKeyMap: next };
+      }),
+
     clearSession: () => set(initialState),
   }),
 );

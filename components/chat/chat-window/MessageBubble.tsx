@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @next/next/no-img-element */
 "use client";
-import { useState, useCallback } from "react";
+
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Message, MessageStatus } from "@/types/chat";
 import { useAuthStore } from "@/stores/authStore";
 import LinkPreviewCard from "./LinkPreviewCard";
@@ -15,15 +16,22 @@ import {
   CornerUpRight,
   ChevronDown,
   Download,
-  Music,
   X,
   Image as ImageIcon,
   Video,
   FileText,
   File,
   FileSpreadsheet,
-  Archive,
   Headphones,
+  FileArchive,
+  FileCode,
+  FileAudio,
+  FileVideo,
+  FileImage,
+  Play,
+  Pause,
+  Mic,
+  Music,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/stores/chatStore";
@@ -31,37 +39,90 @@ import { useAppearanceStore } from "@/stores/appearanceStore";
 import { timeFormatFn } from "@/lib/dateHelper";
 import { MediaViewer } from "../media/MediaViewer";
 import { VideoPlayer } from "../media/VideoPlayer";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-//  helpers
+// ─── helpers ────────────────────────────────────────────────────────────────
+
 const sizeLabel = (bytes: number) => {
   if (!bytes) return "";
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-// ✅ Lucide icon — mimeType অনুযায়ী
-const FileIcon = ({
+const fmtDuration = (s: number) => {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+};
+
+// ─── FileIcon ────────────────────────────────────────────────────────────────
+
+export const FileIcon = ({
   mimeType,
   className,
 }: {
   mimeType: string;
   className?: string;
 }) => {
-  if (mimeType?.includes("pdf")) return <FileText className={className} />;
-  if (mimeType?.includes("zip") || mimeType?.includes("rar"))
-    return <Archive className={className} />;
-  if (mimeType?.includes("word")) return <FileText className={className} />;
-  if (mimeType?.includes("sheet") || mimeType?.includes("excel"))
-    return <FileSpreadsheet className={className} />;
-  return <File className={className} />;
+  const mime = mimeType?.toLowerCase() || "";
+  if (mime.startsWith("image/"))
+    return <FileImage className={cn("text-purple-400", className)} />;
+  if (mime.startsWith("video/"))
+    return <FileVideo className={cn("text-pink-400", className)} />;
+  if (mime.startsWith("audio/"))
+    return <Music className={cn("text-orange-400", className)} />;
+  if (
+    mime.includes("javascript") ||
+    mime.includes("typescript") ||
+    mime.includes("json") ||
+    mime.includes("html") ||
+    mime.includes("css") ||
+    mime.includes("xml") ||
+    mime.includes("sql")
+  )
+    return (
+      <FileCode
+        className={cn("text-yellow-400 dark:text-yellow-300", className)}
+      />
+    );
+  if (mime.includes("pdf"))
+    return <FileText className={cn("text-red-400", className)} />;
+  if (
+    mime.includes("zip") ||
+    mime.includes("rar") ||
+    mime.includes("tar") ||
+    mime.includes("7z")
+  )
+    return (
+      <FileArchive
+        className={cn("text-amber-500 dark:text-amber-400", className)}
+      />
+    );
+  if (mime.includes("word") || mime.includes("document"))
+    return (
+      <FileText className={cn("text-blue-400 dark:text-blue-300", className)} />
+    );
+  if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv"))
+    return (
+      <FileSpreadsheet
+        className={cn("text-green-500 dark:text-green-400", className)}
+      />
+    );
+  if (mime.startsWith("text/"))
+    return (
+      <FileText
+        className={cn("text-slate-400 dark:text-slate-300", className)}
+      />
+    );
+  return <File className={cn("text-slate-400", className)} />;
 };
 
-const getExtension = (url: string) => {
-  const match = url.split("?")[0].match(/\.[a-z0-9]+$/i);
-  return match ? match[0] : "";
-};
-
-//  Download hook
+// ─── Download button ─────────────────────────────────────────────────────────
 type DlState = "idle" | "downloading" | "done" | "error";
 
 function useDownload() {
@@ -94,7 +155,8 @@ function useDownload() {
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = blobUrl;
-        link.download = name ?? `file_${Date.now()}${getExtension(url)}`;
+        const ext = url.split("?")[0].match(/\.[a-z0-9]+$/i)?.[0] ?? "";
+        link.download = name ?? `file_${Date.now()}${ext}`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -115,7 +177,6 @@ function useDownload() {
     },
     [state],
   );
-
   return { download, state, progress };
 }
 
@@ -129,73 +190,249 @@ function DownloadBtn({
   isMine: boolean;
 }) {
   const { download, state, progress } = useDownload();
+  const label =
+    state === "idle"
+      ? "Download"
+      : state === "done"
+        ? "Saved!"
+        : state === "error"
+          ? "Failed"
+          : `${progress}%`;
+
   return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        download(url, name);
-      }}
-      disabled={state === "downloading"}
-      title={
-        state === "idle"
-          ? "Download"
-          : state === "done"
-            ? "Saved!"
-            : state === "error"
-              ? "Failed"
-              : `${progress}%`
-      }
-      className={cn(
-        "relative h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-all overflow-hidden",
-        isMine
-          ? "hover:bg-sky-500/30"
-          : "hover:bg-slate-200 dark:hover:bg-slate-700",
-        state === "done" && "bg-emerald-500/20",
-        state === "error" && "bg-red-500/20",
-      )}
-    >
-      {state === "downloading" && (
-        <svg
-          className="absolute inset-0 w-8 h-8 -rotate-90"
-          viewBox="0 0 32 32"
-        >
-          <circle
-            cx="16"
-            cy="16"
-            r="13"
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity="0.2"
-            strokeWidth="2.5"
-          />
-          <circle
-            cx="16"
-            cy="16"
-            r="13"
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity="0.8"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * 13}`}
-            strokeDashoffset={`${2 * Math.PI * 13 * (1 - progress / 100)}`}
-            className="transition-[stroke-dashoffset] duration-200"
-          />
-        </svg>
-      )}
-      <span className="relative">
-        {state === "idle" && <Download className="h-4 w-4" />}
-        {state === "downloading" && (
-          <span className="text-[9px] font-bold tabular-nums">{progress}%</span>
-        )}
-        {state === "done" && <Check className="h-4 w-4 text-emerald-400" />}
-        {state === "error" && <X className="h-4 w-4 text-red-400" />}
-      </span>
-    </button>
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              download(url, name);
+            }}
+            disabled={state === "downloading"}
+            className={cn(
+              "relative h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-all overflow-hidden",
+              isMine
+                ? "hover:bg-white/20"
+                : "hover:bg-slate-200 dark:hover:bg-slate-700",
+              state === "done" && "bg-emerald-500/20",
+              state === "error" && "bg-red-500/20",
+            )}
+          >
+            {state === "downloading" && (
+              <svg
+                className="absolute inset-0 w-8 h-8 -rotate-90"
+                viewBox="0 0 32 32"
+              >
+                <circle
+                  cx="16"
+                  cy="16"
+                  r="13"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity="0.2"
+                  strokeWidth="2.5"
+                />
+                <circle
+                  cx="16"
+                  cy="16"
+                  r="13"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity="0.8"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 13}`}
+                  strokeDashoffset={`${2 * Math.PI * 13 * (1 - progress / 100)}`}
+                  className="transition-[stroke-dashoffset] duration-200"
+                />
+              </svg>
+            )}
+            <span className="relative">
+              {state === "idle" && <Download className="h-4 w-4" />}
+              {state === "downloading" && (
+                <span className="text-[9px] font-bold tabular-nums">
+                  {progress}%
+                </span>
+              )}
+              {state === "done" && (
+                <Check className="h-4 w-4 text-emerald-400" />
+              )}
+              {state === "error" && <X className="h-4 w-4 text-red-400" />}
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
-// ✅ Shared ReplyPreview — media bubble + text bubble দুটোতেই কাজ করবে
+// ─── Voice Message Player (শুধুমাত্র VoiceMessage এর জন্য) ────────────────────
+
+function VoicePlayer({
+  url,
+  name,
+  size,
+  isMine,
+}: {
+  url: string;
+  name: string;
+  size: number;
+  isMine: boolean;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const bars = 28;
+
+  const [heights] = useState(() =>
+    Array.from({ length: bars }, (_, i) => {
+      const seed = (url.charCodeAt(i % url.length) * (i + 1)) % 100;
+      return 20 + (seed % 60);
+    }),
+  );
+
+useEffect(() => {
+  const audio = audioRef.current;
+  if (!audio) return;
+  const fetchExactDuration = async () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+      setDuration(decodedData.duration);
+    } catch (err) {
+      console.error("Failed to decode audio duration:", err);
+    }
+  };
+
+  fetchExactDuration(); 
+
+  const onTime = () => setCurrentTime(audio.currentTime);
+  const onEnd = () => {
+    setPlaying(false);
+    setCurrentTime(0);
+  };
+
+  audio.addEventListener("timeupdate", onTime);
+  audio.addEventListener("ended", onEnd);
+
+  return () => {
+    audio.removeEventListener("timeupdate", onTime);
+    audio.removeEventListener("ended", onEnd);
+  };
+}, [url]);
+
+  const togglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      audio.play();
+      setPlaying(true);
+    }
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = ratio * duration;
+  };
+
+  const progress = duration > 0 ? currentTime / duration : 0;
+  const displayTime =
+    duration > 0
+      ? playing
+        ? fmtDuration(currentTime)
+        : fmtDuration(duration)
+      : sizeLabel(size);
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2.5 px-3 py-2.5 w-[240px]",
+        isMine
+          ? "bg-sky-600"
+          : "bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700",
+      )}
+    >
+      <audio ref={audioRef} src={url} preload="metadata" />
+
+      <button
+        onClick={togglePlay}
+        className={cn(
+          "h-9 w-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
+          isMine
+            ? "bg-white/20 hover:bg-white/30 text-white"
+            : "bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200",
+        )}
+      >
+        {playing ? (
+          <Pause className="h-4 w-4 fill-current" />
+        ) : (
+          <Play className="h-4 w-4 fill-current translate-x-[1px]" />
+        )}
+      </button>
+
+      <div className="flex flex-col gap-1 flex-1 min-w-0">
+        <div
+          className="flex items-center gap-[2px] h-7 cursor-pointer"
+          onClick={seek}
+          title="Seek"
+        >
+          {heights.map((h, i) => {
+            const barProgress = i / bars;
+            const active = barProgress <= progress;
+            return (
+              <span
+                key={i}
+                style={{ height: `${h}%` }}
+                className={cn(
+                  "inline-block w-[3px] rounded-full flex-shrink-0 transition-colors duration-150",
+                  isMine
+                    ? active
+                      ? "bg-white"
+                      : "bg-white/35"
+                    : active
+                      ? "bg-sky-500 dark:bg-sky-400"
+                      : "bg-slate-300 dark:bg-slate-600",
+                )}
+              />
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <span
+            className={cn(
+              "text-[10px] font-medium tabular-nums",
+              isMine ? "text-white/60" : "text-slate-400",
+            )}
+          >
+            {displayTime}
+          </span>
+          <Mic
+            className={cn(
+              "h-2.5 w-2.5",
+              isMine ? "text-white/40" : "text-slate-400",
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reply Preview ───────────────────────────────────────────────────────────
+
 function ReplyPreview({
   replyTo,
   myId,
@@ -207,11 +444,13 @@ function ReplyPreview({
   isMine: boolean;
   onClick: () => void;
 }) {
-  const replyAtts = replyTo.attachments ?? [];
-  const replyImages = replyAtts.filter((a: any) => a.type === "image");
-  const replyVideos = replyAtts.filter((a: any) => a.type === "video");
-  const replyAudios = replyAtts.filter((a: any) => a.type === "audio");
-  const replyFiles = replyAtts.filter((a: any) => a.type === "file");
+  const atts = replyTo.attachments ?? [];
+  const imgs = atts.filter((a: any) => a.type === "image");
+  const vids = atts.filter((a: any) => a.type === "video");
+  const voices = atts.filter((a: any) => a.type === "VoiceMessage");
+  const files = atts.filter(
+    (a: any) => a.type === "file" || a.type === "audio",
+  );
   const hasText = !!replyTo.content?.trim();
   const senderLabel = replyTo.senderId === myId ? "You" : "Message";
 
@@ -227,22 +466,20 @@ function ReplyPreview({
     >
       <CornerUpRight className="h-3 w-3 shrink-0 opacity-60" />
 
-      {/* ✅ image thumbnail */}
-      {replyImages.length > 0 && (
+      {imgs.length > 0 && (
         <div className="relative w-9 h-9 rounded overflow-hidden shrink-0">
           <img
-            src={replyImages[0].url}
+            src={imgs[0].url}
             alt=""
             className="w-full h-full object-cover"
           />
         </div>
       )}
 
-      {/* video thumbnail */}
-      {replyVideos.length > 0 &&
-        replyImages.length === 0 &&
+      {vids.length > 0 &&
+        imgs.length === 0 &&
         (() => {
-          const v = replyVideos[0];
+          const v = vids[0];
           const thumb = v.publicId
             ? v.url
                 .replace(
@@ -264,7 +501,6 @@ function ReplyPreview({
                   <Video className="h-4 w-4 text-white/60" />
                 </div>
               )}
-              {/* play overlay */}
               <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="white">
                   <path d="M8 5v14l11-7z" />
@@ -274,43 +510,40 @@ function ReplyPreview({
           );
         })()}
 
-      {/* text area */}
       <div className="flex flex-col min-w-0 flex-1">
         <span className="font-semibold opacity-90 text-[10px] mb-0.5">
           {senderLabel}
         </span>
         <span className="truncate opacity-70 flex items-center gap-1">
-          {/* ✅ Lucide icon hint — no emoji */}
-          {replyImages.length > 0 && !hasText && (
+          {imgs.length > 0 && !hasText && (
             <>
               <ImageIcon className="h-3 w-3 shrink-0" /> Photo
             </>
           )}
-          {replyVideos.length > 0 && replyImages.length === 0 && !hasText && (
+          {vids.length > 0 && imgs.length === 0 && !hasText && (
             <>
               <Video className="h-3 w-3 shrink-0" /> Video
             </>
           )}
-          {replyAudios.length > 0 &&
-            replyImages.length === 0 &&
-            replyVideos.length === 0 &&
+          {voices.length > 0 &&
+            imgs.length === 0 &&
+            vids.length === 0 &&
             !hasText && (
               <>
-                <Headphones className="h-3 w-3 shrink-0" />{" "}
-                {replyAudios[0].name ?? "Audio"}
+                <Mic className="h-3 w-3 shrink-0" /> Voice Message
               </>
             )}
-          {replyFiles.length > 0 &&
-            replyImages.length === 0 &&
-            replyVideos.length === 0 &&
-            replyAudios.length === 0 &&
+          {files.length > 0 &&
+            imgs.length === 0 &&
+            vids.length === 0 &&
+            voices.length === 0 &&
             !hasText && (
               <>
                 <FileIcon
-                  mimeType={replyFiles[0].mimeType}
+                  mimeType={files[0].mimeType}
                   className="h-3 w-3 shrink-0"
                 />{" "}
-                {replyFiles[0].name ?? "File"}
+                {files[0].name ?? "File"}
               </>
             )}
           {hasText && replyTo.content}
@@ -320,7 +553,8 @@ function ReplyPreview({
   );
 }
 
-//  Status icon
+// ─── Status icon ─────────────────────────────────────────────────────────────
+
 const StatusIcon = ({ status }: { status: MessageStatus }) => {
   if (status === MessageStatus.SENDING)
     return <Clock className="h-3 w-3 text-white/60" />;
@@ -334,6 +568,8 @@ const StatusIcon = ({ status }: { status: MessageStatus }) => {
     return <CheckCheck className="h-3 w-3 text-sky-300" />;
   return null;
 };
+
+// ─── Image grid ──────────────────────────────────────────────────────────────
 
 const MessageImageGrid = ({
   mediaAtts,
@@ -454,6 +690,8 @@ const MessageImageGrid = ({
   );
 };
 
+// ─── MessageBubble (main export) ─────────────────────────────────────────────
+
 export default function MessageBubble({ message }: { message: Message }) {
   const { myId } = useAuthStore();
   const { openCtx } = useChatStore();
@@ -466,17 +704,28 @@ export default function MessageBubble({ message }: { message: Message }) {
   const isMine = message.senderId === myId;
   const isDeleted = message.is_deleted_for_everyone;
   const isTemp = (message as any).isTemp === true;
-  const attachments = (message as any).attachments ?? [];
-  const progress = (message as any).uploadProgress ?? 0;
+  const attachments: any[] = (message as any).attachments ?? [];
+  const uploadProgress = (message as any).uploadProgress ?? 0;
   const hasCaption = !!message.content?.trim();
 
+  // ── 🔴 Attachment buckets (Audio এবং VoiceMessage আলাদা করা হলো) ──
   const mediaAtts = attachments.filter(
-    (a: any) => a.type === "image" || a.type === "video",
+    (a) => a.type === "image" || a.type === "video",
   );
-  const audioAtts = attachments.filter((a: any) => a.type === "audio");
-  const fileAtts = attachments.filter((a: any) => a.type === "file");
-  const hasMedia = mediaAtts.length > 0;
 
+  // শুধুমাত্র অ্যাপ থেকে রেকর্ড করা ভয়েস
+  const voiceAtts = attachments.filter((a) => a.type === "VoiceMessage");
+
+  // গান/মিউজিক এবং অন্যান্য ফাইল একই ফাইলে (ফাইল কার্ড) হিসেবে দেখাবে
+  const fileAtts = attachments.filter(
+    (a) => a.type === "file" || a.type === "audio",
+  );
+
+  const hasMedia = mediaAtts.length > 0;
+  const hasVoice = voiceAtts.length > 0;
+  const hasFiles = fileAtts.length > 0;
+
+  // ── Radii ───────────────────────────────────────────────────────────────
   const textRadius =
     bubbleStyle === "modern"
       ? isMine
@@ -490,6 +739,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     ? "rounded-2xl rounded-br-sm overflow-hidden"
     : "rounded-2xl rounded-bl-sm overflow-hidden";
 
+  // ── Scroll to replied message ────────────────────────────────────────────
   const scrollToReply = () => {
     if (!message.replyTo?._id) return;
     const el = document.getElementById(`message-${message.replyTo._id}`);
@@ -504,15 +754,15 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
 
-  //  Media bubble
-  if ((hasMedia || audioAtts.length > 0 || fileAtts.length > 0) && !isDeleted) {
-    const videoAtts = mediaAtts.filter((a: any) => a.type === "video");
+  // ── Media / attachment bubble ────────────────────────────────────────────
+  if ((hasMedia || hasVoice || hasFiles) && !isDeleted) {
+    const videoAtts = mediaAtts.filter((a) => a.type === "video");
 
     return (
       <>
         {viewerOpen && (
           <MediaViewer
-            items={mediaAtts.map((a: any) => ({
+            items={mediaAtts.map((a) => ({
               url: a.url,
               type: a.type,
               name: a.name,
@@ -542,6 +792,7 @@ export default function MessageBubble({ message }: { message: Message }) {
             onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
             className={cn("relative", mediaRadius)}
           >
+            {/* ── Context menu button ── */}
             {!isTemp && (
               <button
                 onClick={(e) => {
@@ -555,13 +806,12 @@ export default function MessageBubble({ message }: { message: Message }) {
               </button>
             )}
 
-            {/* ✅ ReplyPreview — media bubble-এর উপরে */}
+            {/* ── Reply preview ── */}
             {message.replyTo && (
               <div
                 className={cn(
                   "px-2 pt-2",
                   isMine ? "bg-sky-600" : "bg-slate-100 dark:bg-slate-800",
-                  // top radius — media-র উপরে থাকবে বলে নিচে radius নেই
                   isMine
                     ? "rounded-t-2xl rounded-tr-2xl"
                     : "rounded-t-2xl rounded-tl-2xl",
@@ -576,13 +826,14 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             )}
 
+            {/* ── Image grid ── */}
             {hasMedia && (
               <MessageImageGrid
                 mediaAtts={mediaAtts}
                 hasCaption={hasCaption}
                 isMine={isMine}
                 isTemp={isTemp}
-                progress={progress}
+                progress={uploadProgress}
                 createdAt={message.createdAt}
                 timeFormat={timeFormat}
                 status={message.status}
@@ -593,10 +844,9 @@ export default function MessageBubble({ message }: { message: Message }) {
               />
             )}
 
+            {/* ── Video player ── */}
             {videoAtts.map((v: any, i: number) => {
-              const absoluteIndex = mediaAtts.findIndex(
-                (a: any) => a.url === v.url,
-              );
+              const absoluteIndex = mediaAtts.findIndex((a) => a.url === v.url);
               return (
                 <VideoPlayer
                   key={i}
@@ -614,48 +864,18 @@ export default function MessageBubble({ message }: { message: Message }) {
               );
             })}
 
-            {audioAtts.map((a: any, i: number) => (
-              <div
+            {/* ── 🔴 Voice Message (শুধুমাত্র অ্যাপের রেকর্ড করা ভয়েস) ── */}
+            {voiceAtts.map((a: any, i: number) => (
+              <VoicePlayer
                 key={i}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 w-[240px]",
-                  isMine
-                    ? "bg-sky-600"
-                    : "bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700",
-                )}
-              >
-                <div
-                  className={cn(
-                    "h-9 w-9 rounded-full flex items-center justify-center shrink-0",
-                    isMine ? "bg-sky-400/30" : "bg-slate-200 dark:bg-slate-700",
-                  )}
-                >
-                  <Music className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "text-xs font-medium truncate",
-                      isMine
-                        ? "text-white"
-                        : "text-slate-700 dark:text-slate-200",
-                    )}
-                  >
-                    {a.name}
-                  </p>
-                  <p
-                    className={cn(
-                      "text-[10px]",
-                      isMine ? "text-white/60" : "text-slate-400",
-                    )}
-                  >
-                    {sizeLabel(a.size)}
-                  </p>
-                </div>
-                <DownloadBtn url={a.url} name={a.name} isMine={isMine} />
-              </div>
+                url={a.url}
+                name={a.name}
+                size={a.size}
+                isMine={isMine}
+              />
             ))}
 
+            {/* ── 🔴 Generic File AND Audio (গান/মিউজিক) ── */}
             {fileAtts.map((f: any, i: number) => (
               <div
                 key={i}
@@ -669,7 +889,7 @@ export default function MessageBubble({ message }: { message: Message }) {
                 <div
                   className={cn(
                     "h-9 w-9 rounded-xl flex items-center justify-center shrink-0",
-                    isMine ? "bg-sky-400/30" : "bg-slate-200 dark:bg-slate-700",
+                    isMine ? "bg-white/15" : "bg-slate-200 dark:bg-slate-700",
                   )}
                 >
                   <FileIcon mimeType={f.mimeType} className="h-4 w-4" />
@@ -699,6 +919,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             ))}
 
+            {/* ── Caption bar ── */}
             {hasCaption && (
               <div
                 className={cn(
@@ -735,13 +956,40 @@ export default function MessageBubble({ message }: { message: Message }) {
                 </div>
               </div>
             )}
+
+            {/* ── Standalone time/status for voice/file when NO caption ── */}
+            {!hasCaption && !hasMedia && (hasVoice || hasFiles) && (
+              <div
+                className={cn(
+                  "flex justify-end items-center gap-1 px-3 py-1.5",
+                  isMine
+                    ? "bg-sky-600 rounded-b-2xl rounded-br-sm"
+                    : "bg-slate-100 dark:bg-slate-800 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200 dark:border-slate-700",
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-[10px]",
+                    isMine ? "text-white/60" : "text-slate-400",
+                  )}
+                >
+                  {isTemp
+                    ? "Sending..."
+                    : message.createdAt &&
+                      timeFormatFn(message.createdAt, timeFormat)}
+                </span>
+                {isMine && message.status && !isTemp && (
+                  <StatusIcon status={message.status} />
+                )}
+              </div>
+            )}
           </div>
         </div>
       </>
     );
   }
 
-  //  Text bubble
+  // ── Text bubble ────────────────────────────────────────────────────────────
   return (
     <div
       id={`message-${message._id}`}
@@ -785,7 +1033,6 @@ export default function MessageBubble({ message }: { message: Message }) {
           </button>
         )}
 
-        {/* ✅ ReplyPreview — text bubble-এও একই component */}
         {message.replyTo && !isDeleted && (
           <ReplyPreview
             replyTo={message.replyTo}
@@ -804,11 +1051,12 @@ export default function MessageBubble({ message }: { message: Message }) {
           ) : (
             <>
               <LinkPreviewCard content={message.content} isMine={isMine} />
-              <span className="whitespace-pre-wrap wrap-break-word mt-1">
+              <span className="whitespace-pre-wrap break-words mt-1">
                 {message.content}
               </span>
             </>
           )}
+
           <div
             className={cn(
               "flex items-center justify-end gap-1 select-none",

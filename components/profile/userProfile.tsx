@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -20,13 +21,20 @@ import {
   Pin,
   ArrowLeft,
   ChevronRight,
+  Play,
+  FileText,
+  ImageIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import api from "@/lib/axios";
 import { API_URL, fmtTime } from "@/lib/chat-helpers";
 import { useChatStore } from "@/stores/chatStore";
 import { ActionTooltip } from "../reuse/ActionTooltip";
+import Image from "next/image";
 
+import { MediaViewer } from "@/components/chat/media/MediaViewer";
+
+// --- Types ---
 interface UserProfile {
   _id: string;
   userName: string;
@@ -41,40 +49,65 @@ interface UserProfile {
   createdAt?: string;
 }
 
+interface SharedMedia {
+  _id: string;
+  uploadedBy: {
+    userName: string;
+    profilePicture?: string;
+  };
+  url: string;
+  type: "image" | "video" | "raw" | "file" | "audio" | "other";
+  name: string;
+  size: number;
+  mimeType: string;
+  createdAt: string;
+}
+
 interface Props {
   userId: string | null;
   open: boolean;
   onClose: () => void;
 }
 
+// --- Helper Functions ---
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (!+bytes) return "0 Bytes";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
+
+// --- API Calls ---
 const fetchUserProfile = async (userId: string): Promise<UserProfile> => {
   const res = await api.get(`${API_URL}/chats/viewDetails/${userId}`);
   return res.data.user;
 };
 
-export default function ProfilePanel({ userId, open, onClose }: Props) {
-  // 🎯 View কন্ট্রোল করার স্টেট (main = Profile, media = Gallery)
-  const [currentView, setCurrentView] = useState<"main" | "media">("main");
+// Real API for Media
+const fetchSharedMedia = async (chatId: string): Promise<SharedMedia[]> => {
+  const { data } = await api.get(`${API_URL}/chats/${chatId}/attachments`);
+  return data.attachments || [];
+};
 
-  // প্যানেল বন্ধ করলে যেন আবার মেইন প্রোফাইলে ফিরে আসে
+export default function ProfilePanel({ userId, open, onClose }: Props) {
+  const [currentView, setCurrentView] = useState<"main" | "media">("main");
+  const [mediaTab, setMediaTab] = useState<"image" | "video" | "raw">("image");
+
+  const [viewerData, setViewerData] = useState<{
+    items: { url: string; type: "image" | "video"; name?: string }[];
+    initialIndex: number;
+  } | null>(null);
+
   useEffect(() => {
     if (!open) {
-      setTimeout(() => setCurrentView("main"), 300);
+      setTimeout(() => {
+        setCurrentView("main");
+        setMediaTab("image");
+      }, 300);
     }
   }, [open]);
-
-  const {
-    data: user,
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery({
-    queryKey: ["userProfile", userId],
-    queryFn: () => fetchUserProfile(userId!),
-    enabled: !!userId && open,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 10,
-  });
 
   const { togglePin, toggleFavorite, contacts, openChat } = useChatStore();
 
@@ -86,6 +119,55 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
   const isFavorite = contactStoreData?.isFavorite || false;
   const customChatId = contactStoreData?.customChatId;
 
+  // User Profile Query
+  const {
+    data: user,
+    isLoading: isUserLoading,
+    isError: isUserError,
+    refetch: refetchUser,
+  } = useQuery({
+    queryKey: ["userProfile", userId],
+    queryFn: () => fetchUserProfile(userId!),
+    enabled: !!userId && open,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+  });
+
+  // Shared Media Query
+  const { data: mediaItems = [], isLoading: isMediaLoading } = useQuery({
+    queryKey: ["sharedMedia", customChatId],
+    queryFn: () => fetchSharedMedia(customChatId!),
+    enabled: !!customChatId && open,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  // Filter media based on type
+  const images = useMemo(
+    () => mediaItems.filter((m) => m.type === "image"),
+    [mediaItems],
+  );
+  const videos = useMemo(
+    () => mediaItems.filter((m) => m.type === "video"),
+    [mediaItems],
+  );
+  const docs = useMemo(
+    () =>
+      mediaItems.filter(
+        (m) =>
+          m.type === "raw" ||
+          m.type === "file" ||
+          m.type === "audio" ||
+          m.type === "other" ||
+          (!m.mimeType.startsWith("image/") &&
+            !m.mimeType.startsWith("video/")),
+      ),
+    [mediaItems],
+  );
+
+  // Get active tab data
+  const activeMediaData =
+    mediaTab === "image" ? images : mediaTab === "video" ? videos : docs;
+
   return (
     <div
       className={`absolute top-0 right-0 h-full w-full md:w-[340px] lg:w-[400px] z-20
@@ -95,8 +177,8 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                    transition-transform duration-300 ease-in-out
                    ${open ? "translate-x-0" : "translate-x-full"}`}
     >
-      {/* Media View */}
       {currentView === "media" ? (
+        // --- MEDIA VIEW ---
         <div className="flex flex-col h-full bg-white dark:bg-slate-950 animate-in slide-in-from-right-8 fade-in duration-300">
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3.5 bg-white dark:bg-slate-900 shadow-sm shrink-0 border-b dark:border-slate-800">
@@ -113,21 +195,140 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
             </span>
           </div>
 
-          {/* Media Grid */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-            <div className="grid grid-cols-3 gap-2">
-              {/* Placeholder media items */}
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
-                <div
-                  key={i}
-                  className="aspect-square bg-slate-200 dark:bg-slate-800 rounded-md cursor-pointer hover:opacity-80 transition-opacity"
-                />
-              ))}
+          {/* Media Tabs */}
+          <div className="flex items-center px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-full">
+              {[
+                {
+                  id: "image",
+                  label: "Images",
+                  icon: ImageIcon,
+                  count: images.length,
+                },
+                {
+                  id: "video",
+                  label: "Videos",
+                  icon: Video,
+                  count: videos.length,
+                },
+                {
+                  id: "raw",
+                  label: "Docs",
+                  icon: FileText,
+                  count: docs.length,
+                },
+              ].map((tab) => {
+                const isActive = mediaTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() =>
+                      setMediaTab(tab.id as "image" | "video" | "raw")
+                    }
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[13px] font-medium rounded-md transition-all outline-none
+                      ${
+                        isActive
+                          ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
+                      }`}
+                  >
+                    <tab.icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                    <span className="text-[10px] bg-slate-200 dark:bg-slate-800 px-1.5 py-0.5 rounded-full ml-1">
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          {/* Media Content Grid */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+            {isMediaLoading ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+              </div>
+            ) : activeMediaData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center opacity-50">
+                {mediaTab === "image" && (
+                  <ImageIcon className="w-12 h-12 mb-3" />
+                )}
+                {mediaTab === "video" && <Video className="w-12 h-12 mb-3" />}
+                {mediaTab === "raw" && <FileText className="w-12 h-12 mb-3" />}
+                <p className="text-sm">
+                  No {mediaTab === "raw" ? "document" : mediaTab}s shared yet
+                </p>
+              </div>
+            ) : mediaTab === "raw" ? (
+              // Document List View (ফাইলগুলো আগের মতোই ব্রাউজারে ওপেন হবে)
+              <div className="flex flex-col gap-2">
+                {activeMediaData.map((doc, index) => (
+                  <div
+                    key={index}
+                    onClick={() => window.open(doc.url, "_blank")}
+                    className="flex items-center gap-3 p-3 rounded-lg border dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500 shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
+                        {doc.name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 uppercase">
+                          {doc.mimeType.split("/").pop()}
+                        </p>
+                        <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {formatBytes(doc.size)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {activeMediaData.map((item, index) => (
+                  <div
+                    key={index}
+                    onClick={() => {
+                      const viewerItems = activeMediaData.map((m) => ({
+                        url: m.url,
+                        type: m.type as "image" | "video",
+                        name: m.name,
+                      }));
+                      setViewerData({
+                        items: viewerItems,
+                        initialIndex: index,
+                      });
+                    }}
+                    className="aspect-square bg-slate-200 dark:bg-slate-800 rounded-md cursor-pointer hover:opacity-80 transition-opacity relative group overflow-hidden"
+                  >
+                    {item.type === "image" ? (
+                      <Image
+                        src={item.url}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        height={200}
+                        width={200}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-slate-800">
+                        <Play className="w-6 h-6 text-white opacity-80" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ) : (
-        // main profile view
+        // --- MAIN PROFILE VIEW ---
         <div className="flex flex-col h-full animate-in slide-in-from-left-8 fade-in duration-300">
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3.5 bg-blue-600 dark:bg-slate-900 text-white shrink-0 border-b dark:border-slate-800">
@@ -144,7 +345,7 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
             </span>
           </div>
 
-          {isLoading && (
+          {isUserLoading && (
             <div className="flex-1 flex flex-col items-center justify-center gap-3">
               <Loader2 className="w-7 h-7 animate-spin text-blue-600 dark:text-blue-500" />
               <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -153,13 +354,13 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
             </div>
           )}
 
-          {isError && !isLoading && (
+          {isUserError && !isUserLoading && (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 px-8 text-center">
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 Could not load profile.
               </p>
               <button
-                onClick={() => refetch()}
+                onClick={() => refetchUser()}
                 className="text-sm text-blue-600 dark:text-blue-400 font-medium mt-1 hover:underline outline-none"
               >
                 Try again
@@ -167,7 +368,7 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
             </div>
           )}
 
-          {user && !isLoading && (
+          {user && !isUserLoading && (
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               {/* Cover + Avatar */}
               <div className="flex flex-col items-center py-8 bg-gradient-to-b from-blue-500 to-blue-600 dark:from-slate-800 dark:to-slate-900">
@@ -179,10 +380,7 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                     </AvatarFallback>
                   </Avatar>
                   {user.isOnline && (
-                    <span
-                      className="absolute bottom-1 right-1 w-4 h-4 rounded-full
-                                   bg-green-500 border-2 border-white dark:border-slate-800"
-                    />
+                    <span className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-green-500 border-2 border-white dark:border-slate-800" />
                   )}
                 </div>
                 <h2 className="mt-3 text-[20px] font-semibold text-white">
@@ -216,17 +414,11 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                       if (label === "Message" && contactStoreData) {
                         openChat(contactStoreData);
                         onClose();
-                      } else {
-                        console.log(`${label} feature coming soon!`);
                       }
                     }}
                     className="flex flex-col items-center gap-2 flex-1 group outline-none"
                   >
-                    <div
-                      className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 
-                                  flex items-center justify-center group-hover:bg-blue-100 
-                                  dark:group-hover:bg-blue-500/20 transition-all duration-300 transform group-hover:scale-105"
-                    >
+                    <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-100 dark:group-hover:bg-blue-500/20 transition-all duration-300 transform group-hover:scale-105">
                       <Icon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                     </div>
                     <span className="text-[12px] text-slate-600 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 font-medium transition-colors">
@@ -248,7 +440,7 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                 </div>
               </PanelSection>
 
-              {/* Shared Media Section */}
+              {/* Shared Media Section (Preview) */}
               <PanelSection>
                 <div className="px-5 py-4">
                   <button
@@ -256,7 +448,7 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                     className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 rounded-lg transition-colors mb-3 outline-none group"
                   >
                     <span className="text-[12px] text-blue-600 dark:text-blue-400 font-semibold uppercase tracking-wider">
-                      Shared Media
+                      Shared Media ({mediaItems.length})
                     </span>
                     <div className="flex items-center gap-1">
                       <span className="text-[12px] text-slate-500 dark:text-slate-400 font-medium">
@@ -267,13 +459,51 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                   </button>
 
                   <div className="flex items-center gap-3 overflow-x-auto custom-scrollbar pb-1">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div
-                        key={i}
-                        className="w-[72px] h-[72px] rounded-lg bg-slate-200 dark:bg-slate-700 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setCurrentView("media")}
-                      />
-                    ))}
+                    {isMediaLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-slate-400 m-auto" />
+                    ) : mediaItems.length > 0 ? (
+                      mediaItems.slice(0, 5).map((item, index) => (
+                        <div
+                          key={index}
+                          className="w-[72px] h-[72px] rounded-lg bg-slate-200 dark:bg-slate-700 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity overflow-hidden relative"
+                          onClick={() => {
+                            const tabType =
+                              item.type === "file" ||
+                              item.type === "audio" ||
+                              item.type === "other"
+                                ? "raw"
+                                : item.type === "video"
+                                  ? "video"
+                                  : "image";
+                            setMediaTab(tabType as "image" | "video" | "raw");
+                            setCurrentView("media");
+                          }}
+                        >
+                          {item.type === "image" ? (
+                            <Image
+                              src={item.url}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              height={72}
+                              width={72}
+                            />
+                          ) : item.type === "video" ? (
+                            <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+                              <Play className="w-5 h-5 text-white opacity-80" />
+                            </div>
+                          ) : (
+                            <div className="w-full h-full bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-500">
+                              <FileText className="w-6 h-6" />
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">
+                        No media shared yet
+                      </p>
+                    )}
                   </div>
                 </div>
               </PanelSection>
@@ -285,7 +515,6 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                   label={user.userEmail}
                   sub="Email"
                 />
-
                 <PanelRow
                   icon={<AtSign className="w-4 h-4" />}
                   label={`@${user.customId}`}
@@ -316,23 +545,16 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                 )}
               </PanelSection>
 
-              {/* User Action Section (Pin/Favorite) */}
+              {/* User Action Section */}
               <PanelSection>
                 <div className="flex flex-col">
-                  {/* Favorite Button */}
                   <button
-                    onClick={() => {
-                      if (customChatId) toggleFavorite(customChatId);
-                    }}
+                    onClick={() => customChatId && toggleFavorite(customChatId)}
                     className="w-full flex items-center gap-4 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group outline-none"
                   >
                     <div className="w-9 h-9 rounded-full bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center group-hover:bg-amber-100 dark:group-hover:bg-amber-500/20 transition-colors shrink-0">
                       <Star
-                        className={`w-4 h-4 transition-colors ${
-                          isFavorite
-                            ? "text-amber-500 fill-amber-500"
-                            : "text-amber-600 dark:text-amber-400"
-                        }`}
+                        className={`w-4 h-4 transition-colors ${isFavorite ? "text-amber-500 fill-amber-500" : "text-amber-600 dark:text-amber-400"}`}
                       />
                     </div>
                     <span className="text-[14px] font-medium text-slate-800 dark:text-slate-200">
@@ -342,20 +564,13 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                     </span>
                   </button>
 
-                  {/* Pin Button */}
                   <button
-                    onClick={() => {
-                      if (customChatId) togglePin(customChatId);
-                    }}
+                    onClick={() => customChatId && togglePin(customChatId)}
                     className="w-full flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group outline-none"
                   >
                     <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center group-hover:bg-slate-200 dark:group-hover:bg-slate-700 transition-colors shrink-0">
                       <Pin
-                        className={`w-4 h-4 transition-colors ${
-                          isPinned
-                            ? "text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200"
-                            : "text-slate-600 dark:text-slate-400"
-                        }`}
+                        className={`w-4 h-4 transition-colors ${isPinned ? "text-slate-800 dark:text-slate-200 fill-slate-800 dark:fill-slate-200" : "text-slate-600 dark:text-slate-400"}`}
                       />
                     </div>
                     <span className="text-[14px] font-medium text-slate-800 dark:text-slate-200">
@@ -381,6 +596,17 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
           )}
         </div>
       )}
+
+      {viewerData && typeof document !== "undefined"
+        ? createPortal(
+            <MediaViewer
+              items={viewerData.items}
+              initialIndex={viewerData.initialIndex}
+              onClose={() => setViewerData(null)}
+            />,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -414,23 +640,14 @@ function PanelRow({
 }) {
   return (
     <div
-      className={`flex items-center gap-4 px-5 py-3.5
-        ${!last ? "border-b border-slate-100 dark:border-slate-800/50" : ""}`}
+      className={`flex items-center gap-4 px-5 py-3.5 ${!last ? "border-b border-slate-100 dark:border-slate-800/50" : ""}`}
     >
-      <div
-        className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-500/10
-                    flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0"
-      >
+      <div className="w-9 h-9 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
         {icon}
       </div>
       <div className="min-w-0">
         <p
-          className={`text-[14px] font-medium truncate
-            ${
-              isLink
-                ? "text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                : "text-slate-800 dark:text-slate-200"
-            }`}
+          className={`text-[14px] font-medium truncate ${isLink ? "text-blue-600 dark:text-blue-400 hover:underline cursor-pointer" : "text-slate-800 dark:text-slate-200"}`}
         >
           {label}
         </p>
@@ -453,9 +670,7 @@ function DangerRow({
 }) {
   return (
     <button
-      className={`w-full flex items-center gap-4 px-5 py-3.5 outline-none
-        hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors group
-        ${!last ? "border-b border-slate-100 dark:border-slate-800/50" : ""}`}
+      className={`w-full flex items-center gap-4 px-5 py-3.5 outline-none hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors group ${!last ? "border-b border-slate-100 dark:border-slate-800/50" : ""}`}
     >
       <div className="w-9 h-9 rounded-full bg-red-50 dark:bg-red-500/10 flex items-center justify-center group-hover:bg-red-100 dark:group-hover:bg-red-500/20 transition-colors">
         <span className="text-red-500 dark:text-red-400">{icon}</span>

@@ -164,7 +164,7 @@ export class FlexCipher {
   static async unpackMessage(opts: UnpackOptions): Promise<FCPUnpackResult> {
     const { envelope, chatKey, signingKey, duressPin } = opts;
 
-    const parts = envelope.split(":");
+    const parts = envelope.split(":");  
     if (parts.length < 8)
       throw new Error("Invalid FCP envelope: wrong segment count");
 

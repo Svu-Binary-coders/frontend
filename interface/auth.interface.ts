@@ -3,6 +3,8 @@ export interface IMyDetails {
   userName: string;
   userEmail: string;
   profilePicture?: string;
+  bio?: string;
+  website?: string;
   location: {
     city?: string;
     country?: string;

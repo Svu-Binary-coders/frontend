@@ -21,7 +21,7 @@ export interface Contact {
 }
 export interface Attachment {
   url: string;
-  type: "image" | "video" | "audio" | "file";
+  type: "image" | "video" | "audio" | "file" | "VoiceMessage";
   name: string;
   size: number;
   mimeType: string;
@@ -42,6 +42,7 @@ export interface Message {
   status?: MessageStatus;
   isImportant?: boolean;
   is_edited?: boolean;
+  isForwarded?: boolean;
   is_deleted_for_everyone?: boolean;
   replyTo?: { _id: string; content: string; senderId: string } | null;
 }

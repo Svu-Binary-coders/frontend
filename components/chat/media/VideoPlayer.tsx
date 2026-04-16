@@ -59,6 +59,7 @@ export function VideoPlayer({
         setIsLoading(true);
         await v.play();
         setPlaying(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         if (err?.name !== "AbortError") console.error(err);
       } finally {

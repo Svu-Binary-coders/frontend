@@ -277,7 +277,7 @@ function EmailUpdateModal({ currentEmail }: { currentEmail: string }) {
             <Input
               type="text"
               inputMode="numeric"
-              placeholder="· · · · · ·"
+              placeholder="000000"
               maxLength={6}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}

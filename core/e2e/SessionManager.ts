@@ -13,6 +13,12 @@ async function sha256(data: Uint8Array): Promise<Uint8Array> {
 
 export class SessionManager {
   // ── Tier 1: Root Shared Key (ECDH) ───────────────────────────────────────
+  /**
+   *
+   * @param myPrivateKey This is your private key (should be generated and stored securely, e.g. in IndexedDB)
+   * @param peerPublicKey This is the other party's public key (should be obtained from the server or exchanged securely)
+   * @returns A CryptoKey that can be used as the root key for deriving chat keys. This key is not directly usable for encryption, but can be used to derive chat-specific keys.
+   */
   static async deriveRootKey(
     myPrivateKey: CryptoKey,
     peerPublicKey: CryptoKey,

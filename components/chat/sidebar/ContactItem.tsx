@@ -24,6 +24,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { useLockChat } from "@/hooks/useChatAction";
+import { getNameFallback } from "@/utils/getNameFallback";
 
 interface ContactItemProps {
   contact: Contact;
@@ -42,12 +43,6 @@ export default function ContactItem({
   onDelete,
   onBlock,
 }: ContactItemProps) {
-  const initials = contact.name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
 
   const { timeFormat } = useAppearanceStore();
   
@@ -72,7 +67,7 @@ export default function ContactItem({
             <Avatar className="h-11 w-11 border border-slate-200/10 dark:border-slate-800 shadow-sm transition-transform duration-200 group-hover:scale-105">
               <AvatarImage src={contact.avatar} alt={contact.name} />
               <AvatarFallback className="bg-linear-to-br from-sky-400 to-blue-600 text-white text-sm font-bold">
-                {initials}
+                {getNameFallback(contact.name)}
               </AvatarFallback>
             </Avatar>
             {contact.isOnline && (
