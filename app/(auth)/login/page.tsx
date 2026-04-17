@@ -108,6 +108,8 @@ export default function LoginPage() {
       // Try loading identity from local IndexedDB
       try {
         identityKeys = await KeyManager.loadIdentity(loggedInUserId, pin);
+
+
       } catch (error) {
         // New device detected - restore identity from server backup
         console.log("New device detected - restoring identity from server");
@@ -138,6 +140,7 @@ export default function LoginPage() {
       }
 
       const { privateKey, signingKey, identity } = identityKeys;
+      await KeyManager.saveActiveKeys(loggedInUserId, privateKey, signingKey);
 
       // Derive master key from PIN
       const masterKey = await KeyManager.deriveMasterKey(
@@ -180,6 +183,7 @@ export default function LoginPage() {
         signingKey,
         backupKey,
         chatKeyMap,
+        needPin: false,
       });
 
       toast.success("Unlocked! Redirecting to chat...");

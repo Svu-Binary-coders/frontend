@@ -9,6 +9,7 @@ import { isAxiosError } from "axios";
 import { toast } from "sonner";
 import Cropper from "react-easy-crop";
 import { getCroppedImg } from "@/lib/cropImage";
+import { User2 as userProfile } from "lucide-react";
 import {
   User,
   Mail,
@@ -499,7 +500,7 @@ export default function Profile() {
 
           <div className="text-center md:text-left space-y-1.5">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              {myDetails?.userName}
+              {myDetails?.userName ? myDetails.userName.split(' ').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : "Unnamed User"}
             </h1>
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-2 text-sm text-slate-500">
               <span className="flex items-center gap-1.5">
@@ -519,7 +520,7 @@ export default function Profile() {
               </span>
               <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500 bg-white/80 border border-slate-100 px-2.5 py-1 rounded-full">
                 <Calendar className="h-3 w-3" />
-                Joined
+                <span className="mx-1">Joined </span>
                 {myDetails?.createdAt
                   ? new Date(myDetails.createdAt).toLocaleDateString("en-US", {
                       month: "short",
@@ -534,7 +535,7 @@ export default function Profile() {
                 variant="outline"
                 size="sm"
                 onClick={() => gopath("?page=settings&subPage=account")}
-                className="mt-4"
+                className="mt-4 "
               >
                 View Login Devices
               </Button>
@@ -543,7 +544,7 @@ export default function Profile() {
                 variant="outline"
                 size="sm"
                 onClick={() => gopath("?page=settings&subPage=appearance")}
-                className="mt-2"
+                className="mt-2 mx-2"
               >
                 Manage Appearance
               </Button>

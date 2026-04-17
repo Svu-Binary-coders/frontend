@@ -18,6 +18,7 @@ export interface Contact {
   isPinned?: boolean;
   isFavorite?: boolean;
   isChatLock?: boolean;
+  publicKey: string;
 }
 export interface Attachment {
   url: string;

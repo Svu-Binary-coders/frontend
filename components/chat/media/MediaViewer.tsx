@@ -21,6 +21,7 @@ import {
   ZoomOut,
   ZoomIn,
   RotateCcw,
+  Forward,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getVideoThumbnail } from "@/lib/cloudinary.helpers";
@@ -501,7 +502,7 @@ export function MediaViewer({
     setPosition({ x: 0, y: 0 });
   }, []);
 
-  // ── Scroll to zoom ── 
+  // ── Scroll to zoom ──
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       if (item.type !== "image") return;
@@ -635,6 +636,13 @@ export function MediaViewer({
             state={dlState}
             progress={dlProgress}
           />
+
+          <button
+            className="p-2 rounded-sm bg-white/10 hover:bg-white/20 transition-colors ml-2"
+          >
+            <Forward className="h-4 w-4 text-white " />
+          </button>
+
           <button
             onClick={onClose}
             className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors ml-2"

@@ -12,6 +12,8 @@ import { SOCKET_URL, API_URL } from "@/lib/chat-helpers";
 import { getQueryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
+import { useSessionStore } from "./sessionStore";
+import { FCPEngine, SessionManager } from "@/core/e2e";
 
 //  Infinite Query cache type
 interface InfinitePage {
@@ -231,6 +233,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       console.error("Toggle pin failed", error);
     }
   },
+
   toggleFavorite: async (chatId) => {
     const queryClient = getQueryClient();
     try {
@@ -334,8 +337,44 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     set({ socket });
 
     //  Receive message
-    socket.on("receive_private_message", (data: Message) => {
+    socket.on("receive_private_message", async (data: Message) => {
       const { activeContact } = get();
+      const { privateKey, signingKey } = useSessionStore.getState();
+      if (!privateKey || !signingKey) {
+        console.error(
+          "Private or signing key missing. Cannot decrypt message.",
+        );
+      }
+      const sender = get().contacts.find((c) => c._id === data.senderId);
+
+      if (
+        sender &&
+        sender.publicKey &&
+        privateKey &&
+        signingKey &&
+        sender.customChatId
+      ) {
+        try {
+          // chat key get
+          const { getChatKey } = await SessionManager.bootstrapSession(
+            privateKey,
+            sender.publicKey,
+          );
+
+          const chatKey = await getChatKey(sender.customChatId);
+          const decryptedMessage = await FCPEngine.decryptMessage(
+            data.content,
+            chatKey,
+            signingKey,
+          );
+          data.content = decryptedMessage.text;
+        } catch (error) {
+          console.error("Failed to decrypt message", error);
+          data.content = "🔒 [Encrypted Message]";
+        }
+      } else {
+        data.content = "🔒 [Encrypted Message]";
+      }
 
       if (data.senderId === activeContact?._id) {
         const newMsg = { ...data, status: MessageStatus.READ };
@@ -623,7 +662,8 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   },
 
   //  sendMessage
-  sendMessage: () => {
+  //  sendMessage
+  sendMessage: async () => {
     const {
       msgInput,
       activeContact,
@@ -633,119 +673,169 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       forwardMsg,
       _typingTimeout,
     } = get();
+
     const myId = useAuthStore.getState().myId;
 
     if (!msgInput.trim() || !activeContact || !myId) return;
     const content = msgInput.trim();
+    const friendPublicKey = activeContact.publicKey;
+
+    const { privateKey, signingKey } = useSessionStore.getState();
+
+    if (!friendPublicKey) {
+      console.error("Friend's public key is missing. Cannot send message.");
+      return;
+    }
+
+    if (!privateKey || !signingKey) {
+      console.error("Private or signing key missing. Cannot send message.");
+
+      // try to get IndexBD stored keys and update session store
+      try {
+      
+      } catch (error) {
+        return;
+      }
+
+
+
+      return;
+    }
+
     const chatId = activeContact.customChatId;
+    if (!chatId) {
+      console.error("Chat ID is missing. Cannot send message.");
+      return;
+    }
     set({ msgInput: "" });
 
-    // EDIT MODE
-    if (editingMsg) {
-      socket?.emit(
-        "edit_messsage",
-        {
-          messageId: editingMsg._id,
-          newContent: content,
-          chatRoomId: chatId,
-          senderId: myId,
-          is_forwarded: !!forwardMsg,
-        },
-        (res: any) => {
-          if (res?.success) {
-            set((s) => ({
-              messages: s.messages.map((m) =>
+    try {
+      const { getChatKey } = await SessionManager.bootstrapSession(
+        privateKey,
+        friendPublicKey,
+      );
+      const chatKey = await getChatKey(chatId);
+
+      const encryptedContent = await FCPEngine.encryptMessage({
+        text: content,
+        type: "text",
+        chatId: chatId,
+        chatKey: chatKey,
+        signingKey: signingKey,
+      });
+
+      // EDIT MODE
+      if (editingMsg) {
+        socket?.emit(
+          "edit_messsage",
+          {
+            messageId: editingMsg._id,
+            newContent: encryptedContent,
+            chatRoomId: chatId,
+            senderId: myId,
+            is_forwarded: !!forwardMsg,
+          },
+          (res: any) => {
+            if (res?.success) {
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m._id === editingMsg._id
+                    ? { ...m, content, is_edited: true }
+                    : m,
+                ),
+              }));
+              updateAllPagesCache(chatId, (m) =>
                 m._id === editingMsg._id
                   ? { ...m, content, is_edited: true }
                   : m,
+              );
+            }
+          },
+        );
+        set({ editingMsg: null });
+        return;
+      }
+
+      // NORMAL SEND
+      socket?.emit("stop_typing", { receiverId: activeContact._id });
+      clearTimeout(_typingTimeout);
+
+      const tempId = `temp_${Date.now()}`;
+
+      const tempMsg: Message = {
+        _id: tempId,
+        senderId: myId,
+        content, 
+        createdAt: new Date().toISOString(),
+        status: MessageStatus.SENDING,
+        replyTo: replyTo
+          ? {
+              _id: replyTo._id!,
+              content: replyTo.content,
+              senderId: replyTo.senderId,
+            }
+          : null,
+      };
+
+      set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
+      updateMessagesCache(chatId, (old) => [...old, tempMsg]);
+      socket?.emit(
+        "send_message",
+        {
+          receiverId: activeContact._id,
+          content: encryptedContent,
+          replyToMessageId: replyTo?._id,
+        },
+        (res: any) => {
+          if (res?.success) {
+            const sentMsg: Message = {
+              ...res.data,
+              senderId: myId,
+              content,
+              status: MessageStatus.SENT,
+            };
+
+            set((s) => ({
+              messages: s.messages.map((m) => (m._id === tempId ? sentMsg : m)),
+              contacts: s.contacts
+                .map((c) =>
+                  c._id === activeContact._id
+                    ? {
+                        ...c,
+                        lastMessage: {
+                          content,
+                          createdAt: new Date().toISOString(),
+                        },
+                      }
+                    : c,
+                )
+                .sort(
+                  (a, b) =>
+                    new Date(b.lastMessage?.createdAt || 0).getTime() -
+                    new Date(a.lastMessage?.createdAt || 0).getTime(),
+                ),
+            }));
+
+            updateMessagesCache(chatId, (old) =>
+              old.map((m) => (m._id === tempId ? sentMsg : m)),
+            );
+          } else {
+            set((s) => ({
+              messages: s.messages.map((m) =>
+                m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
               ),
             }));
-            updateAllPagesCache(chatId, (m) =>
-              m._id === editingMsg._id ? { ...m, content, is_edited: true } : m,
+            updateMessagesCache(chatId, (old) =>
+              old.map((m) =>
+                m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
+              ),
             );
           }
         },
       );
-      set({ editingMsg: null });
-      return;
+    } catch (error) {
+      console.error("Encryption failed while sending message:", error);
     }
-
-    // NORMAL SEND
-    socket?.emit("stop_typing", { receiverId: activeContact._id });
-    clearTimeout(_typingTimeout);
-
-    const tempId = `temp_${Date.now()}`;
-    const tempMsg: Message = {
-      _id: tempId,
-      senderId: myId,
-      content,
-      createdAt: new Date().toISOString(),
-      status: MessageStatus.SENDING,
-      replyTo: replyTo
-        ? {
-            _id: replyTo._id!,
-            content: replyTo.content,
-            senderId: replyTo.senderId,
-          }
-        : null,
-    };
-
-    set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
-    updateMessagesCache(chatId, (old) => [...old, tempMsg]);
-
-    socket?.emit(
-      "send_message",
-      {
-        receiverId: activeContact._id,
-        content,
-        replyToMessageId: replyTo?._id,
-      },
-      (res: any) => {
-        if (res?.success) {
-          const sentMsg: Message = {
-            ...res.data,
-            senderId: myId,
-            status: MessageStatus.SENT,
-          };
-
-          set((s) => ({
-            messages: s.messages.map((m) => (m._id === tempId ? sentMsg : m)),
-            contacts: s.contacts
-              .map((c) =>
-                c._id === activeContact._id
-                  ? {
-                      ...c,
-                      lastMessage: {
-                        content,
-                        createdAt: new Date().toISOString(),
-                      },
-                    }
-                  : c,
-              )
-              .sort(
-                (a, b) =>
-                  new Date(b.lastMessage?.createdAt || 0).getTime() -
-                  new Date(a.lastMessage?.createdAt || 0).getTime(),
-              ),
-          }));
-
-          updateMessagesCache(chatId, (old) =>
-            old.map((m) => (m._id === tempId ? sentMsg : m)),
-          );
-        } else {
-          set((s) => ({
-            messages: s.messages.map((m) =>
-              m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
-            ),
-          }));
-          updateMessagesCache(chatId, (old) =>
-            old.map((m) =>
-              m._id === tempId ? { ...m, status: MessageStatus.FAILED } : m,
-            ),
-          );
-        }
-      },
-    );
   },
 
   //  handleTyping
@@ -985,13 +1075,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     if (!selectedUser || !myId) return;
     set({ newChatLoading: true });
     try {
-      const res = await fetch(`${API_URL}/chats/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ senderId: myId, receiverId: selectedUser._id }),
+      const { data } = await api.post(`/chats/create`, {
+        receiverId: selectedUser._id,
+        senderId: myId,
       });
-      const data = await res.json();
       if (data.success) {
+        console.log("Chat created:", data.chat);
         const nc: Contact = {
           _id: selectedUser._id,
           name: selectedUser.name,
@@ -1000,6 +1089,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           customChatId: data.chat.chatRoomId,
           unreadCount: 0,
           isOnline: false,
+          publicKey: data.chat.publicKey,
         };
         set((s) => ({
           contacts: s.contacts.find((c) => c._id === nc._id)

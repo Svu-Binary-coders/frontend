@@ -343,7 +343,7 @@ export default function ChatLockView() {
         open={view === "setup"}
         onClose={goBack}
         title="Set up Chat Lock"
-        description="Create a PIN to lock and unlock your chats."
+        description="Create a secure PIN to lock and unlock your chats."
         onSubmit={handleSetupPin}
         isPending={isSettingPin}
         error={setupError}

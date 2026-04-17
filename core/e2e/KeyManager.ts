@@ -48,7 +48,7 @@ export class KeyManager {
     const salt = b64d(saltB64);
 
     // ── Layer 1: PBKDF2 ──────────────────────────────────────────────────
-    
+
     const pinKey = await subtle().importKey(
       "raw",
       enc(pin) as unknown as BufferSource,
@@ -58,7 +58,6 @@ export class KeyManager {
     );
 
     const pbkdf2Bits = await subtle().deriveBits(
-      
       {
         name: "PBKDF2",
         salt: salt as unknown as BufferSource,
@@ -72,7 +71,6 @@ export class KeyManager {
     // ── Layer 2: HKDF stretch (domain separation) ─────────────────────────
     const hkdfSalt = await sha256(enc(pin));
 
-    
     const hkdfKey = await subtle().importKey(
       "raw",
       pbkdf2Bits as unknown as BufferSource,
@@ -85,7 +83,7 @@ export class KeyManager {
     return subtle().deriveKey(
       {
         name: "HKDF",
-        
+
         salt: hkdfSalt as unknown as BufferSource,
         info: enc("FCP-MASTER-v1") as unknown as BufferSource,
         hash: "SHA-256",
@@ -93,7 +91,7 @@ export class KeyManager {
       hkdfKey,
       { name: "AES-GCM", length: 256 },
       false, // ← non-extractable: can never be read out of memory
-      ["wrapKey", "unwrapKey","decrypt","encrypt"] // ← only for wrapping/unwrapping keys,
+      ["wrapKey", "unwrapKey", "decrypt", "encrypt"], // ← only for wrapping/unwrapping keys,
     );
   }
 
@@ -135,7 +133,7 @@ export class KeyManager {
     const iv = rand(12);
     const wrapped = await subtle().wrapKey(exportFormat, keyToWrap, masterKey, {
       name: "AES-GCM",
-      
+
       iv: iv as unknown as BufferSource,
     });
     return { encKeyB64: b64e(wrapped), ivB64: b64e(iv) };
@@ -158,10 +156,10 @@ export class KeyManager {
   ): Promise<CryptoKey> {
     return subtle().unwrapKey(
       exportFormat,
-      
+
       b64d(encKeyB64) as unknown as BufferSource,
       masterKey,
-      
+
       { name: "AES-GCM", iv: b64d(ivB64) as unknown as BufferSource },
       unwrappedKeyAlgo,
       false, // unwrapped keys are also non-extractable
@@ -180,7 +178,7 @@ export class KeyManager {
   static async importPublicKey(b64: string): Promise<CryptoKey> {
     return subtle().importKey(
       "spki",
-      
+
       b64d(b64) as unknown as BufferSource,
       { name: "ECDH", namedCurve: "P-384" },
       false,
@@ -265,9 +263,11 @@ export class KeyManager {
   private static async _openDB(): Promise<IDBDatabase> {
     if (KeyManager._db) return KeyManager._db;
     return new Promise((resolve, reject) => {
-      const req = indexedDB.open("FlexChatDB", 1);
+      const req = indexedDB.open("FlexChatKeysDB", 2);
       req.onupgradeneeded = () => {
-        req.result.createObjectStore("store");
+        if (!req.result.objectStoreNames.contains("store")) {
+          req.result.createObjectStore("store");
+        }
       };
       req.onsuccess = () => {
         KeyManager._db = req.result;
@@ -295,4 +295,45 @@ export class KeyManager {
       req.onerror = () => reject(req.error);
     });
   }
+
+  static async saveActiveKeys(
+    userId: string,
+    privateKey: CryptoKey,
+    signingKey: CryptoKey,
+  ): Promise<void> {
+    const activeSession = { userId, privateKey, signingKey };
+    await KeyManager._idbSet("fcp_active_session", activeSession);
+  }
+
+  static async loadActiveKeys(): Promise<ActiveSession | null> {
+    const session = (await KeyManager._idbGet("fcp_active_session")) as
+      | ActiveSession
+      | undefined;
+
+    if (!session) {
+      return null;
+    }
+
+    return session;
+  }
+
+  private static async _idbDelete(key: string): Promise<void> {
+    const db = await KeyManager._openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction("store", "readwrite");
+      tx.objectStore("store").delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  static async clearActiveKeys(): Promise<void> {
+    await KeyManager._idbDelete("fcp_active_session");
+  }
+}
+
+export interface ActiveSession {
+  userId: string;
+  privateKey: CryptoKey;
+  signingKey: CryptoKey;
 }

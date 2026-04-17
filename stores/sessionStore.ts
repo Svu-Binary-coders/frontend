@@ -6,6 +6,7 @@ interface SessionState {
   privateKey: CryptoKey | null;
   signingKey: CryptoKey | null;
   backupKey: CryptoKey | null;
+  needPin: boolean;
   chatKeyMap: Map<string, CryptoKey>;
 }
 
@@ -28,6 +29,7 @@ const initialState: SessionState = {
   privateKey: null,
   signingKey: null,
   backupKey: null,
+  needPin: false,
   chatKeyMap: new Map(),
 };
 

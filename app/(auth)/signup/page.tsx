@@ -61,15 +61,15 @@ export default function SignupPage() {
     try {
       const { data } = await api.post("/otp/send-register-otp", { email });
       if (data.success) {
-        toast.success("OTP পাঠানো হয়েছে");
+        toast.success("OTP sent to " + email);
         setModalStep("otp");
         setShowModal(true);
       } else {
-        toast.error(data.message || "OTP পাঠানো যায়নি");
+        toast.error(data.message || "OTP sending fail");
       }
     } catch (e) {
       if (isAxiosError(e)) {
-        toast.error(e.response?.data?.message || "OTP পাঠাতে সমস্যা হয়েছে");
+        toast.error(e.response?.data?.message || "OTP sending fail");
       } else {
         toast.error((e as Error).message);
       }
@@ -109,7 +109,7 @@ export default function SignupPage() {
       });
 
       if (!registerRes.data.success) {
-        toast.error(registerRes.data.message || "Registration হয়নি");
+        toast.error(registerRes.data.message || "Registration fail");
         setVerifying(false);
         return;
       }
@@ -129,7 +129,14 @@ export default function SignupPage() {
       // Step A: Identity তৈরি করো → IndexedDB তে save হবে
       const identity = await KeyManager.createAndStoreIdentity(userId, pin);
 
-      // Step B: PIN ও Salt দিয়ে MasterKey বানাও
+      // savee current keys to active session for auto-login
+      const { privateKey, signingKey } = await KeyManager.loadIdentity(
+        userId,
+        pin,
+      );
+      await KeyManager.saveActiveKeys(userId, privateKey, signingKey);
+
+      // Step B: PIN ও Salt দিয়ে MasterKey বানাও
       const masterKey = await KeyManager.deriveMasterKey(pin, identity.saltB64);
 
       // Step C: BackupKey + Recovery Phrase বানাও
