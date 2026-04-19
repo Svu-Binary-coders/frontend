@@ -1,11 +1,11 @@
 // src/core/e2e/KeyManager.ts
 //
 // Key Derivation Hierarchy
-// ────────────────────────
+//
 // PIN (user input)
-//  └─ PBKDF2 (310k iter, random salt) ──► MasterKey  [never extractable]
-//       └─ AES-GCM encrypt ──────────────► EncryptedPrivateKey  (stored in IndexedDB)
-//       └─ AES-GCM encrypt ──────────────► EncryptedSigningKey  (stored in IndexedDB)
+//  └ PBKDF2 (310k iter, random salt) ► MasterKey  [never extractable]
+//       └ AES-GCM encrypt ► EncryptedPrivateKey  (stored in IndexedDB)
+//       └ AES-GCM encrypt ► EncryptedSigningKey  (stored in IndexedDB)
 //
 // Multi-layer strengthening:
 //   1. PBKDF2  (310,000 iterations, random 32-byte salt)
@@ -20,7 +20,7 @@ const subtle = () => window.crypto.subtle;
 const rand = (n: number) => window.crypto.getRandomValues(new Uint8Array(n));
 const enc = (s: string) => new TextEncoder().encode(s);
 
-// ── Base64 helpers ─────────────────────────────────────────────────────────
+//  Base64 helpers
 function b64e(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   let bin = "";
@@ -31,7 +31,7 @@ function b64d(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
-// ── Internal: SHA-256 of any buffer ───────────────────────────────────────
+//  Internal: SHA-256 of any buffer
 async function sha256(data: Uint8Array): Promise<ArrayBuffer> {
   return subtle().digest("SHA-256", data as unknown as BufferSource);
 }
@@ -47,7 +47,7 @@ export class KeyManager {
   ): Promise<CryptoKey> {
     const salt = b64d(saltB64);
 
-    // ── Layer 1: PBKDF2 ──────────────────────────────────────────────────
+    //  Layer 1: PBKDF2
 
     const pinKey = await subtle().importKey(
       "raw",
@@ -68,7 +68,7 @@ export class KeyManager {
       256,
     );
 
-    // ── Layer 2: HKDF stretch (domain separation) ─────────────────────────
+    //  Layer 2: HKDF stretch (domain separation)
     const hkdfSalt = await sha256(enc(pin));
 
     const hkdfKey = await subtle().importKey(
@@ -257,7 +257,7 @@ export class KeyManager {
     return { identity, privateKey, signingKey };
   }
 
-  // ── Minimal IndexedDB wrapper ──────────────────────────────────────────
+  //  Minimal IndexedDB wrapper
   private static _db: IDBDatabase | null = null;
 
   private static async _openDB(): Promise<IDBDatabase> {

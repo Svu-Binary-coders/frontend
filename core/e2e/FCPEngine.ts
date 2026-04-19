@@ -3,9 +3,9 @@
 // bitwise FCP flags and calls pack/unpack on your behalf.
 
 import { FlexCipher, PackOptions } from "./FlexCipher";
-import { FCPFlags, hasFlag } from "./types";
+import { FCPFlags, FCPVersion, hasFlag } from "./types";
 
-// ── encryptMessage params ──────────────────────────────────────────────────
+//  encryptMessage params
 export interface EncryptMessageParams {
   text: string;
   type: "text" | "image" | "file";
@@ -17,20 +17,24 @@ export interface EncryptMessageParams {
     isBlur?: boolean;
     isViewOnce?: boolean;
     conditions?: string;
+    version?: FCPVersion;
+    currentForwardCount?: number;
   };
 }
 
-// ── decryptMessage result ──────────────────────────────────────────────────
+//  decryptMessage result
 export interface DecryptMessageResult {
   text: string;
   flags: {
     isForwarded: boolean;
     isBlur: boolean;
     isViewOnce: boolean;
+    isHighlyForwarded: boolean;
   };
   conditions: string;
   timestamp: number;
   ttlSeconds: number | null;
+  forwardCount: number;
 }
 
 export class FCPEngine {
@@ -56,7 +60,14 @@ export class FCPEngine {
   static async encryptMessage(params: EncryptMessageParams): Promise<string> {
     const { text, type, chatId, chatKey, signingKey, options = {} } = params;
 
-    // ── Base flag by payload type ─────────────────────────────────────────
+    // Automatically increment forward count if isForwarded is true
+    let newForwardCount = options.currentForwardCount || 0;
+    if (options.isForwarded) {
+      newForwardCount += 1;
+      if (newForwardCount >= 5) newForwardCount = 5; // cap the forward count at 5 for "highly forwarded" status
+    }
+
+    //  Base flag by payload type
     let flags: number;
     if (type === "image") flags = FCPFlags.IMG;
     else if (type === "file") flags = FCPFlags.FILE;
@@ -67,11 +78,12 @@ export class FCPEngine {
     if (options.isViewOnce) flags = FlexCipher.buildFlags(flags, FCPFlags.BURN);
 
     return FlexCipher.packMessage({
-      payload: { t: text },
+      payload: { t: text, fc: newForwardCount },
       chatKey,
       signingKey,
       chatId,
       flags,
+      version: options.version,
       conditions: options.conditions ?? "NONE",
       ttlSeconds: options.isViewOnce ? 10 : undefined,
     });
@@ -92,9 +104,9 @@ export class FCPEngine {
    *       peerSigningKey
    *     );
    *
-   *     if (result.flags.isBlur)      applyBlur(result.text);
-   *     if (result.flags.isForwarded) can not forward();
-   *     if (result.flags.isViewOnce)  startBurnTimer(result.ttlSeconds);
+   *     if (result.flags.isBlur)      //applyBlur(result.text);
+   *     if (result.flags.isForwarded) //can not forward();
+   *     if (result.flags.isViewOnce)  //startBurnTimer(result.ttlSeconds);
    *
    *   } catch (err) {
    *     console.error("Tampered or locked message:", err);
@@ -115,16 +127,19 @@ export class FCPEngine {
       duressPin,
     });
 
+    const count = result.payload.fc || 0;
     return {
       text: result.payload.t,
       flags: {
         isForwarded: hasFlag(result.flags, FCPFlags.FORWARDED),
         isBlur: hasFlag(result.flags, FCPFlags.BLUR),
         isViewOnce: hasFlag(result.flags, FCPFlags.BURN),
+        isHighlyForwarded: count >= 5, // "Highly forwarded" if forward count is 5 or more
       },
       conditions: result.conditions,
       timestamp: result.timestamp,
       ttlSeconds: result.ttlSeconds,
+      forwardCount: count,
     };
   }
 }

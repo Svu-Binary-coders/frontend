@@ -68,7 +68,7 @@ const SIZE_LIMITS: Record<AttachmentType, number> = {
 
 const MAX_FILES = 5;
 
-// ─── 🔴 Updated WASM Image Compression with Manager ────────────────────────
+//  🔴 Updated WASM Image Compression with Manager
 const compressWithWasm = async (
   file: File,
   quality: number = 75,
@@ -92,7 +92,7 @@ const compressWithWasm = async (
     const success = wasm._process_image_wasm(
       inputPtr,
       uint8Array.length,
-      quality 
+      quality,
     );
 
     if (success === 1) {
@@ -122,7 +122,7 @@ const compressWithWasm = async (
     return file;
   }
 };
-// ────────────────────────────────────────────────────────────────────────────
+//
 
 // XHR upload — withCredentials + upload progress
 function xhrUpload(

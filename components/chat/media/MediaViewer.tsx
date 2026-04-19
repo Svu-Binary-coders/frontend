@@ -473,7 +473,7 @@ export function MediaViewer({
   const { download, state: dlState, progress: dlProgress } = useDownload();
   const item = items[current];
 
-  // ── Zoom & Pan ──
+  //  Zoom & Pan
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -481,7 +481,7 @@ export function MediaViewer({
 
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // ── Zoom helpers ──
+  //  Zoom helpers
   const clampScale = (s: number) => Math.min(Math.max(s, 1), 5);
 
   const handleZoomIn = useCallback(
@@ -502,7 +502,7 @@ export function MediaViewer({
     setPosition({ x: 0, y: 0 });
   }, []);
 
-  // ── Scroll to zoom ──
+  //  Scroll to zoom
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       if (item.type !== "image") return;
@@ -529,7 +529,7 @@ export function MediaViewer({
     [item.type, scale, position],
   );
 
-  // ── Keyboard shortcuts ──
+  //  Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -556,7 +556,7 @@ export function MediaViewer({
     return () => window.removeEventListener("keydown", handler);
   }, [items.length, onClose, handleZoomIn, handleZoomOut, resetZoom]);
 
-  // ── Drag to pan ──
+  //  Drag to pan
   const handleMouseDown = (e: React.MouseEvent) => {
     if (scale > 1) {
       setIsDragging(true);
@@ -587,7 +587,7 @@ export function MediaViewer({
       className="fixed inset-0 z-[100] bg-black/95 flex flex-col overflow-hidden"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      {/* ── Top bar ── */}
+      {/*  Top bar  */}
       <div className="flex items-center justify-between px-4 py-3 shrink-0 relative z-50 bg-gradient-to-b from-black/60 to-transparent">
         <div>
           <p className="text-white text-sm font-medium truncate max-w-[200px]">
@@ -637,9 +637,7 @@ export function MediaViewer({
             progress={dlProgress}
           />
 
-          <button
-            className="p-2 rounded-sm bg-white/10 hover:bg-white/20 transition-colors ml-2"
-          >
+          <button className="p-2 rounded-sm bg-white/10 hover:bg-white/20 transition-colors ml-2">
             <Forward className="h-4 w-4 text-white " />
           </button>
 
@@ -652,7 +650,7 @@ export function MediaViewer({
         </div>
       </div>
 
-      {/* ── Media area ── */}
+      {/*  Media area  */}
       <div
         className="flex-1 flex items-center justify-center relative min-h-0 px-12 overflow-hidden"
         onMouseDown={handleMouseDown}
@@ -718,7 +716,7 @@ export function MediaViewer({
         )}
       </div>
 
-      {/* ── Bottom ── */}
+      {/*  Bottom  */}
       <div className="shrink-0 px-4 pb-5 pt-3 flex flex-col gap-3 relative z-50 bg-gradient-to-t from-black/80 to-transparent">
         {caption && (
           <p className="text-white/85 text-sm text-center">{caption}</p>

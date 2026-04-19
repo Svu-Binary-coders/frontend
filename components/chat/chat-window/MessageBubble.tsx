@@ -60,6 +60,17 @@ const fmtDuration = (s: number) => {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 };
 
+const safeStr = (val: unknown): string => {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "object") {
+    const obj = val as any;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.content === "string") return obj.content;
+  }
+  return "";
+};
+
 // ─── FileIcon ────────────────────────────────────────────────────────────────
 
 export const FileIcon = ({
@@ -269,7 +280,7 @@ function DownloadBtn({
   );
 }
 
-// ─── Voice Message Player (শুধুমাত্র VoiceMessage এর জন্য) ────────────────────
+// ─── Voice Message Player ────────────────────────────────────────────────────
 
 function VoicePlayer({
   url,
@@ -295,37 +306,35 @@ function VoicePlayer({
     }),
   );
 
-useEffect(() => {
-  const audio = audioRef.current;
-  if (!audio) return;
-  const fetchExactDuration = async () => {
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const response = await fetch(url);
-      const arrayBuffer = await response.arrayBuffer();
-      const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
-      setDuration(decodedData.duration);
-    } catch (err) {
-      console.error("Failed to decode audio duration:", err);
-    }
-  };
-
-  fetchExactDuration(); 
-
-  const onTime = () => setCurrentTime(audio.currentTime);
-  const onEnd = () => {
-    setPlaying(false);
-    setCurrentTime(0);
-  };
-
-  audio.addEventListener("timeupdate", onTime);
-  audio.addEventListener("ended", onEnd);
-
-  return () => {
-    audio.removeEventListener("timeupdate", onTime);
-    audio.removeEventListener("ended", onEnd);
-  };
-}, [url]);
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const fetchExactDuration = async () => {
+      try {
+        const audioCtx = new (
+          window.AudioContext || (window as any).webkitAudioContext
+        )();
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+        setDuration(decodedData.duration);
+      } catch (err) {
+        console.error("Failed to decode audio duration:", err);
+      }
+    };
+    fetchExactDuration();
+    const onTime = () => setCurrentTime(audio.currentTime);
+    const onEnd = () => {
+      setPlaying(false);
+      setCurrentTime(0);
+    };
+    audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("ended", onEnd);
+    return () => {
+      audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("ended", onEnd);
+    };
+  }, [url]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -365,7 +374,6 @@ useEffect(() => {
       )}
     >
       <audio ref={audioRef} src={url} preload="metadata" />
-
       <button
         onClick={togglePlay}
         className={cn(
@@ -381,7 +389,6 @@ useEffect(() => {
           <Play className="h-4 w-4 fill-current translate-x-[1px]" />
         )}
       </button>
-
       <div className="flex flex-col gap-1 flex-1 min-w-0">
         <div
           className="flex items-center gap-[2px] h-7 cursor-pointer"
@@ -409,7 +416,6 @@ useEffect(() => {
             );
           })}
         </div>
-
         <div className="flex items-center justify-between">
           <span
             className={cn(
@@ -451,7 +457,10 @@ function ReplyPreview({
   const files = atts.filter(
     (a: any) => a.type === "file" || a.type === "audio",
   );
-  const hasText = !!replyTo.content?.trim();
+
+  // encrypted object হলে "" — [object Object] না
+  const replyContent = safeStr(replyTo.content);
+  const hasText = !!replyContent.trim();
   const senderLabel = replyTo.senderId === myId ? "You" : "Message";
 
   return (
@@ -546,7 +555,7 @@ function ReplyPreview({
                 {files[0].name ?? "File"}
               </>
             )}
-          {hasText && replyTo.content}
+          {hasText && replyContent}
         </span>
       </div>
     </div>
@@ -706,17 +715,16 @@ export default function MessageBubble({ message }: { message: Message }) {
   const isTemp = (message as any).isTemp === true;
   const attachments: any[] = (message as any).attachments ?? [];
   const uploadProgress = (message as any).uploadProgress ?? 0;
-  const hasCaption = !!message.content?.trim();
 
-  // ── 🔴 Attachment buckets (Audio এবং VoiceMessage আলাদা করা হলো) ──
+  // ── safe string — encrypted object হলে "" হবে, [object Object] না ──────────
+  const contentStr = safeStr(message.content);
+  const hasCaption = !!contentStr.trim();
+
+  // ── Attachment buckets ───────────────────────────────────────────────────────
   const mediaAtts = attachments.filter(
     (a) => a.type === "image" || a.type === "video",
   );
-
-  // শুধুমাত্র অ্যাপ থেকে রেকর্ড করা ভয়েস
   const voiceAtts = attachments.filter((a) => a.type === "VoiceMessage");
-
-  // গান/মিউজিক এবং অন্যান্য ফাইল একই ফাইলে (ফাইল কার্ড) হিসেবে দেখাবে
   const fileAtts = attachments.filter(
     (a) => a.type === "file" || a.type === "audio",
   );
@@ -725,7 +733,7 @@ export default function MessageBubble({ message }: { message: Message }) {
   const hasVoice = voiceAtts.length > 0;
   const hasFiles = fileAtts.length > 0;
 
-  // ── Radii ───────────────────────────────────────────────────────────────
+  // ── Radii ────────────────────────────────────────────────────────────────────
   const textRadius =
     bubbleStyle === "modern"
       ? isMine
@@ -739,7 +747,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     ? "rounded-2xl rounded-br-sm overflow-hidden"
     : "rounded-2xl rounded-bl-sm overflow-hidden";
 
-  // ── Scroll to replied message ────────────────────────────────────────────
+  // ── Scroll to replied message ─────────────────────────────────────────────────
   const scrollToReply = () => {
     if (!message.replyTo?._id) return;
     const el = document.getElementById(`message-${message.replyTo._id}`);
@@ -754,7 +762,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
 
-  // ── Media / attachment bubble ────────────────────────────────────────────
+  // ── Media / attachment bubble ─────────────────────────────────────────────────
   if ((hasMedia || hasVoice || hasFiles) && !isDeleted) {
     const videoAtts = mediaAtts.filter((a) => a.type === "video");
 
@@ -769,7 +777,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               publicId: a.publicId,
             }))}
             initialIndex={viewerIndex}
-            caption={message.content}
+            caption={contentStr}
             sentAt={
               message.createdAt
                 ? timeFormatFn(message.createdAt, timeFormat)
@@ -792,7 +800,7 @@ export default function MessageBubble({ message }: { message: Message }) {
             onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
             className={cn("relative", mediaRadius)}
           >
-            {/* ── Context menu button ── */}
+            {/* Context menu button */}
             {!isTemp && (
               <button
                 onClick={(e) => {
@@ -806,7 +814,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               </button>
             )}
 
-            {/* ── Reply preview ── */}
+            {/* Reply preview */}
             {message.replyTo && (
               <div
                 className={cn(
@@ -826,7 +834,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             )}
 
-            {/* ── Image grid ── */}
+            {/* Image grid */}
             {hasMedia && (
               <MessageImageGrid
                 mediaAtts={mediaAtts}
@@ -844,7 +852,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               />
             )}
 
-            {/* ── Video player ── */}
+            {/* Video player */}
             {videoAtts.map((v: any, i: number) => {
               const absoluteIndex = mediaAtts.findIndex((a) => a.url === v.url);
               return (
@@ -864,7 +872,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               );
             })}
 
-            {/* ── 🔴 Voice Message (শুধুমাত্র অ্যাপের রেকর্ড করা ভয়েস) ── */}
+            {/* Voice messages */}
             {voiceAtts.map((a: any, i: number) => (
               <VoicePlayer
                 key={i}
@@ -875,7 +883,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               />
             ))}
 
-            {/* ── 🔴 Generic File AND Audio (গান/মিউজিক) ── */}
+            {/* Generic file / audio */}
             {fileAtts.map((f: any, i: number) => (
               <div
                 key={i}
@@ -919,7 +927,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             ))}
 
-            {/* ── Caption bar ── */}
+            {/* Caption bar */}
             {hasCaption && (
               <div
                 className={cn(
@@ -937,7 +945,7 @@ export default function MessageBubble({ message }: { message: Message }) {
                       : "text-slate-700 dark:text-slate-200",
                   )}
                 >
-                  {message.content}
+                  {contentStr}
                 </span>
                 <div className="flex items-center gap-1 shrink-0">
                   <span
@@ -957,7 +965,7 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             )}
 
-            {/* ── Standalone time/status for voice/file when NO caption ── */}
+            {/* Standalone time/status for voice/file when NO caption */}
             {!hasCaption && !hasMedia && (hasVoice || hasFiles) && (
               <div
                 className={cn(
@@ -989,7 +997,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     );
   }
 
-  // ── Text bubble ────────────────────────────────────────────────────────────
+  // ── Text bubble ───────────────────────────────────────────────────────────────
   return (
     <div
       id={`message-${message._id}`}
@@ -1050,9 +1058,9 @@ export default function MessageBubble({ message }: { message: Message }) {
             </span>
           ) : (
             <>
-              <LinkPreviewCard content={message.content} isMine={isMine} />
+              <LinkPreviewCard content={contentStr} isMine={isMine} />
               <span className="whitespace-pre-wrap break-words mt-1">
-                {message.content}
+                {contentStr}
               </span>
             </>
           )}

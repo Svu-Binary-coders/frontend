@@ -23,14 +23,14 @@ The core cryptographic logic is organized inside the `core/e2e/` directory, util
 
 ```
 src/
-└── core/
-    └── e2e/
-        ├── index.ts                 # Entry point for FCP
-        ├── types.ts                 # Interfaces for Flags, Conditions, and Payloads
-        ├── KeyManager.ts            # PIN → Master Key & ECDH Identity Keys
-        ├── SessionManager.ts        # Root Shared Key & HKDF Message Keys
-        ├── ProtocolHandler.ts       # Handlers for specific versions (v1, v2)
-        └── FlexCipher.ts            # Main wrapper to Pack/Unpack messages
+└ core/
+    └ e2e/
+        ├ index.ts                 # Entry point for FCP
+        ├ types.ts                 # Interfaces for Flags, Conditions, and Payloads
+        ├ KeyManager.ts            # PIN → Master Key & ECDH Identity Keys
+        ├ SessionManager.ts        # Root Shared Key & HKDF Message Keys
+        ├ ProtocolHandler.ts       # Handlers for specific versions (v1, v2)
+        └ FlexCipher.ts            # Main wrapper to Pack/Unpack messages
 ```
 
 ---
@@ -46,40 +46,44 @@ FCP uses a strict 4-step chaining logic to ensure maximum security. Keys are nev
    `Message_Key = HKDF(Root Shared Key + Current Timestamp)`  
    _Benefit:_ Ensures O(1) performance, immune to "Max Skip" server lag, and natively handles out-of-order messages.
 
-##  2. Key Derivation Chain & Process Flow
+## 2. Key Derivation Chain & Process Flow
+
 FCP uses a strict chaining logic to ensure maximum security. Keys are dynamically generated at different phases of the user journey.
 
-###  Phase 1: Local Device Setup (Login/Registration)
+### Phase 1: Local Device Setup (Login/Registration)
+
 When the user enters their PIN, it generates a Master Key used purely for local storage protection.
 
 [ User PIN ]
-      │
-      ▼ (PBKDF2 - 100,000 Iterations)
-[ Master Key ] ──────(Locks/Unlocks)─────▶ [ Identity Private Key (ECDH) ]
+│
+▼ (PBKDF2 - 100,000 Iterations)
+[ Master Key ] (Locks/Unlocks)▶ [ Identity Private Key (ECDH) ]
 
+### Phase 2: Session Initialization (Key Agreement)
 
-###  Phase 2: Session Initialization (Key Agreement)
 When User A wants to chat with User B, their Identity Keys are mathematically combined.
+
 ```
 User A (Sender)                          User B (Receiver)
     │                                          │
-    ├─ Identity Private Key                    ├─ Identity Public Key
+    ├ Identity Private Key                    ├ Identity Public Key
     │         │                                │         │
-    └─────────┼────────────(ECDH P-384)───────┼─────────┘
+    └┼(ECDH P-384)┼┘
               │                                │
-              └────────────────┬───────────────┘
+              └┬┘
                                ▼
                     [ Root Shared Key ]
                     (Session Key for A↔B)
 ```
 
+### Phase 3: Per-Message Encryption (O(1) Ratchet)
 
-###  Phase 3: Per-Message Encryption (O(1) Ratchet)
 Right before sending a message, a fresh, single-use key is generated. This prevents DoS attacks and handles out-of-order messages flawlessly.
+
 ```
 [ Root Shared Key ]  +  [ Current Timestamp (e.g., 1712839200) ]
       │                       │
-      └───────────┐  ┌────────┘
+      └┐  ┌┘
                   ▼  ▼ (HKDF / SHA-256)
      [ Single-Use Message Key ]
                   │
@@ -87,6 +91,7 @@ Right before sending a message, a fresh, single-use key is generated. This preve
         [ Encrypted CipherText ]
 
 ```
+
 ---
 
 ## 3. Payload Architecture (The Envelope)
@@ -125,7 +130,7 @@ Decryption is strictly blocked unless the receiver's environment meets specific 
 
 ---
 
-##  5. Core Cryptographic Stack
+## 5. Core Cryptographic Stack
 
 FCP relies purely on native browser APIs to maintain zero dependencies and maximum performance.
 
@@ -138,8 +143,5 @@ FCP relies purely on native browser APIs to maintain zero dependencies and maxim
 | **Digital Signature** | `HMAC`    | SHA-256                        |
 
 ---
-
-
-
 
 _Powered by Binary Coder_
