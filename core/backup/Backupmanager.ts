@@ -4,7 +4,7 @@ const subtle = () => window.crypto.subtle;
 const rand = (n: number) => window.crypto.getRandomValues(new Uint8Array(n));
 const textEnc = (s: string) => new TextEncoder().encode(s);
 
-// ── Base64 helpers ─────────────────────────────────────────────────────────
+//  Base64 helpers
 function b64e(buf: ArrayBuffer | Uint8Array): string {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   let bin = "";
@@ -15,7 +15,7 @@ function b64d(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
-// ── AES-GCM encrypt / decrypt ─────────────────────────────────────────────
+//  AES-GCM encrypt / decrypt
 async function aesEncrypt(
   key: CryptoKey,
   data: Uint8Array,
@@ -42,7 +42,7 @@ async function aesDecrypt(
   return new Uint8Array(plain);
 }
 
-// ── Key import helpers ────────────────────────────────────────────────────
+//  Key import helpers
 async function importAesKey(
   raw: Uint8Array,
   usages: KeyUsage[],
@@ -86,7 +86,7 @@ async function importHkdfKey(raw: Uint8Array): Promise<CryptoKey> {
 
 const FIXED_PHRASE_SALT = "FCP-BACKUP-PHRASE-SALT-V1";
 
-// ── 256 unique words ──────────────────────────────────────────────────────
+//  256 unique words
 export const WORDLIST: readonly string[] = [
   "abandon",
   "ability",
@@ -338,14 +338,14 @@ export const WORDLIST: readonly string[] = [
   "card",
 ] as const;
 
-// ── 24 random bytes → phrase ──────────────────────────────────────────────
+//  24 random bytes → phrase
 function bytesToPhrase(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => WORDLIST[b])
     .join(" ");
 }
 
-// ── phrase → deterministic 32-byte raw key ────────────────────────────────
+//  phrase → deterministic 32-byte raw key
 async function phraseToRawBytes(phrase: string): Promise<Uint8Array> {
   const phraseKey = await subtle().importKey(
     "raw",
@@ -367,7 +367,7 @@ async function phraseToRawBytes(phrase: string): Promise<Uint8Array> {
   return new Uint8Array(bits);
 }
 
-// ── phrase validate ───────────────────────────────────────────────────────
+//  phrase validate
 function _validatePhrase(phrase: string): {
   valid: boolean;
   invalidWords: string[];

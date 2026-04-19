@@ -22,14 +22,15 @@ export default function LinkPreviewCard({ content }: Props) {
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        "flex flex-col mt-2 w-full max-w-70 sm:max-w-100 rounded-xl overflow-hidden border shadow-sm transition-all duration-300",
+        // flex-row ব্যবহার করে পাশাপাশি আনা হয়েছে এবং width ছোট করা হয়েছে
+        "flex flex-row mt-2 w-full max-w-[260px] sm:max-w-[320px] rounded-xl overflow-hidden border shadow-sm transition-all duration-200 items-stretch",
         "bg-white border-slate-200 hover:bg-slate-50",
-        "dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-slate-900/50",
+        "dark:bg-slate-800/80 dark:border-slate-700 dark:hover:bg-slate-800",
       )}
     >
-      {/* OG Image */}
+      {/* OG Image (Left Side) */}
       {preview.image && (
-        <div className="w-full h-35 sm:h-52.5 bg-slate-100 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 relative">
+        <div className="w-20 sm:w-24 shrink-0 flex bg-slate-100 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700">
           <img
             src={preview.image}
             alt={preview.title ?? "Link preview"}
@@ -39,30 +40,24 @@ export default function LinkPreviewCard({ content }: Props) {
         </div>
       )}
 
-      {/* Info Container */}
-      <div className="p-3 sm:p-3.5 flex flex-col gap-0.5">
-        {preview.siteName && (
-          <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-0.5 sm:mb-1">
-            {preview.siteName}
-          </span>
-        )}
-
-        {/* Title */}
-        <span className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white line-clamp-1">
+      {/* Info Container (Right Side) */}
+      <div className="p-2 sm:p-2.5 flex flex-col justify-center flex-1 min-w-0">
+        {/* Title (উপরে থাকবে) */}
+        <span className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 line-clamp-1">
           {preview.title}
         </span>
 
-        {/* Description */}
+        {/* Description (টাইটেলের নিচে থাকবে) */}
         {preview.description && (
-          <span className="text-[11px] sm:text-sm text-slate-600 dark:text-slate-300 line-clamp-2 mt-0.5 leading-relaxed">
+          <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5 leading-snug">
             {preview.description}
           </span>
         )}
 
-        {/* Link Footer */}
-        <span className="text-[10px] sm:text-[11px] flex items-center gap-1.5 mt-2 sm:mt-2.5 text-emerald-600 dark:text-emerald-500 font-medium">
-          <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-          {new URL(url).hostname}
+        {/* Link Footer (Website URL) */}
+        <span className="text-[9px] sm:text-[10px] flex items-center gap-1 mt-1.5 text-emerald-600 dark:text-emerald-500 font-medium truncate">
+          <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+          <span className="truncate">{new URL(url).hostname}</span>
         </span>
       </div>
     </a>

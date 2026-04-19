@@ -23,7 +23,7 @@ import { useFingerprint } from "@/lib/useFingerprint";
 import { KeyManager } from "@/core/e2e/KeyManager";
 import { BackupManager } from "@/core/backup/Backupmanager";
 
-// ── Modal step tracker ─────────────────────────────────────────────────────
+//  Modal step tracker
 type ModalStep = "otp" | "recovery";
 
 export default function SignupPage() {
@@ -51,7 +51,7 @@ export default function SignupPage() {
   const router = useRouter();
   const fingerprint = useFingerprint();
 
-  // ── Step 1: OTP পাঠাও ────────────────────────────────────────────────────
+  //  Step 1: OTP পাঠাও
   const handleSendOtp = async () => {
     if (!name.trim() || !email.trim() || !password.trim() || !pin.trim()) {
       toast.error("সব field পূরণ করো (Chat PIN সহ)");
@@ -78,7 +78,7 @@ export default function SignupPage() {
     }
   };
 
-  // ── Step 2: OTP verify → user save → E2E keys → Backup ──────────────────
+  //  Step 2: OTP verify → user save → E2E keys → Backup
   const handleVerifyAndRegister = async () => {
     if (!otp.trim()) {
       toast.error("OTP দাও");
@@ -124,7 +124,7 @@ export default function SignupPage() {
         return;
       }
 
-      // ── E2E Setup ──────────────────────────────────────────────────────
+      //  E2E Setup
 
       // Step A: Identity তৈরি করো → IndexedDB তে save হবে
       const identity = await KeyManager.createAndStoreIdentity(userId, pin);
@@ -176,7 +176,7 @@ export default function SignupPage() {
     }
   };
 
-  // ── Step 3: Phrase copy + confirm → chat এ যাও ────────────────────────
+  //  Step 3: Phrase copy + confirm → chat এ যাও
   const handleCopyPhrase = async () => {
     await navigator.clipboard.writeText(recoveryPhrase);
     setCopied(true);
@@ -192,7 +192,7 @@ export default function SignupPage() {
     router.push("/chat?page=chats");
   };
 
-  // ── UI ─────────────────────────────────────────────────────────────────
+  //  UI
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
       {/* Header */}
@@ -353,11 +353,11 @@ export default function SignupPage() {
         </Link>
       </p>
 
-      {/* ── Modal ─────────────────────────────────────────────────────────── */}
+      {/*  Modal  */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-[420px] p-6 shadow-xl">
-            {/* ── OTP Step ── */}
+            {/*  OTP Step  */}
             {modalStep === "otp" && (
               <>
                 <h3 className="text-xl font-bold text-slate-800 text-center mb-2">
@@ -397,7 +397,7 @@ export default function SignupPage() {
               </>
             )}
 
-            {/* ── Recovery Phrase Step ── */}
+            {/*  Recovery Phrase Step  */}
             {modalStep === "recovery" && (
               <>
                 <div className="flex items-center justify-center mb-4">

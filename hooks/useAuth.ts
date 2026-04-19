@@ -29,10 +29,7 @@ export const useAuth = () => {
           signingKey: activeKeys?.signingKey || null,
           needPin: !activeKeys,
         });
-        console.log("Active keys loaded into session store:", {
-          privateKey: activeKeys?.privateKey,
-          signingKey: activeKeys?.signingKey,
-        });
+        
 
         useAuthStore.setState({
           myId: query.data._id,

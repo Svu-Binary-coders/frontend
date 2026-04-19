@@ -42,7 +42,17 @@ function sizeLabel(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
-
+// Helper to safely extract string from object
+const safeStr = (val: unknown): string => {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  if (typeof val === "object") {
+    const obj = val as any;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.content === "string") return obj.content;
+  }
+  return "";
+};
 //  Time Formatter Helper for Voice Recording
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -395,7 +405,7 @@ export default function InputBar() {
             {editingMsg ? "Editing" : "Replying to"}
           </span>
           <span className="text-slate-500 truncate flex-1 opacity-90">
-            {editingMsg?.content ?? replyTo?.content}
+            {safeStr(editingMsg?.content ?? replyTo?.content)}
           </span>
           <Button
             variant="ghost"

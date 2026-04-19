@@ -1,21 +1,61 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { create } from "zustand";
 import io from "socket.io-client";
-type Socket = ReturnType<typeof io>; // socket instance type(some methods return the socket instance itself, so we can use it as return type)
+type Socket = ReturnType<typeof io>;
 import {
   Message,
   Contact,
   MessageStatus,
   ContextMenuState,
 } from "@/types/chat";
-import { SOCKET_URL, API_URL } from "@/lib/chat-helpers";
+import { SOCKET_URL} from "@/lib/chat-helpers";
 import { getQueryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
-import { useSessionStore } from "./sessionStore";
-import { FCPEngine, SessionManager } from "@/core/e2e";
+import { secureDecryptMessage, secureEncryptMessage } from "@/helper/E2EHelper";
 
-//  Infinite Query cache type
+// ==========================================
+// HELPERS
+// ==========================================
+
+// check and ensure keys exist before encryption/decryption
+const isEncrypted = (text: unknown): boolean =>
+  typeof text === "string" &&
+  (text.startsWith("v1:") || text.startsWith("v4:"));
+
+//content decrypt
+const safeDecrypt = async (
+  content: string,
+  chatId: string,
+  publicKey: string,
+): Promise<string> => {
+  if (!isEncrypted(content)) return content;
+  try {
+    return await secureDecryptMessage(content, chatId, publicKey);
+  } catch {
+    return "🔒 [Encrypted Message]";
+  }
+};
+
+// replyTo decrypt
+const safeDecryptReplyTo = async (
+  replyTo: Message["replyTo"],
+  chatId: string,
+  publicKey: string,
+): Promise<Message["replyTo"]> => {
+  if (!replyTo?.content) return replyTo;
+  if (!isEncrypted(replyTo.content)) return replyTo; // if plan text , does not touch it
+  const decryptedContent = await safeDecrypt(
+    replyTo.content,
+    chatId,
+    publicKey,
+  );
+  return { ...replyTo, content: decryptedContent };
+};
+
+// ==========================================
+// CACHE TYPES
+// ==========================================
 interface InfinitePage {
   messages: Message[];
   hasMore: boolean;
@@ -27,7 +67,6 @@ interface InfiniteCache {
   pageParams: unknown[];
 }
 
-//  Deduplicate helper
 const dedupe = (messages: Message[]): Message[] => {
   const seen = new Set<string>();
   return messages.filter((m) => {
@@ -37,22 +76,17 @@ const dedupe = (messages: Message[]): Message[] => {
   });
 };
 
-//  Cache updater
-// only last page update
 const updateMessagesCache = (
   chatId: string | undefined,
   updater: (old: Message[]) => Message[],
 ) => {
   if (!chatId) return;
-
   getQueryClient().setQueryData(
     ["messages", chatId],
     (old: InfiniteCache | undefined) => {
       if (!old?.pages?.length) return old;
-
       const lastIdx = old.pages.length - 1;
       const updatedMessages = dedupe(updater(old.pages[lastIdx].messages));
-
       return {
         ...old,
         pages: old.pages.map((page, i) =>
@@ -63,19 +97,15 @@ const updateMessagesCache = (
   );
 };
 
-//  updateAllPagesCache
-// all page update like status update, edit, delete (for everyone) etc
 const updateAllPagesCache = (
   chatId: string | undefined,
   updater: (msg: Message) => Message,
 ) => {
   if (!chatId) return;
-
   getQueryClient().setQueryData(
     ["messages", chatId],
     (old: InfiniteCache | undefined) => {
       if (!old?.pages?.length) return old;
-
       return {
         ...old,
         pages: old.pages.map((page) => ({
@@ -87,19 +117,15 @@ const updateAllPagesCache = (
   );
 };
 
-//  filterAllPagesCache
-// delete message (for me) filter like, remove the message from all pages
 const filterAllPagesCache = (
   chatId: string | undefined,
   predicate: (msg: Message) => boolean,
 ) => {
   if (!chatId) return;
-
   getQueryClient().setQueryData(
     ["messages", chatId],
     (old: InfiniteCache | undefined) => {
       if (!old?.pages?.length) return old;
-
       return {
         ...old,
         pages: old.pages.map((page) => ({
@@ -111,6 +137,9 @@ const filterAllPagesCache = (
   );
 };
 
+// ==========================================
+// TYPES
+// ==========================================
 interface NewChatPreview {
   _id: string;
   name: string;
@@ -160,7 +189,6 @@ interface ChatStore {
   addOptimisticMessage: (msg: any) => void;
   replaceTempMessage: (tempId: string, realMsg: any) => void;
   removeTempMessage: (tempId: string) => void;
-
   initSocket: () => () => void;
   openChat: (contact: Contact | null) => void;
   sendMessage: () => void;
@@ -173,6 +201,9 @@ interface ChatStore {
   openCtx: (e: React.MouseEvent, msg: Message, isMine: boolean) => void;
 }
 
+// ==========================================
+// STORE
+// ==========================================
 export const useChatStore = create<ChatStore>()((set, get) => ({
   activeView: "chats" as ActiveView,
   isConnected: false,
@@ -214,43 +245,43 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
   togglePin: async (chatId) => {
     try {
-      await api.post(`${API_URL}/chats/toggle-pin/${chatId}`);
+      await api.post(`/chats/toggle-pin/${chatId}`);
       set((s) => ({
         contacts: s.contacts.map((c) =>
           c.customChatId === chatId ? { ...c, isPinned: !c.isPinned } : c,
         ),
       }));
-
-      // update cache
-      const queryClient = getQueryClient();
-      queryClient.setQueryData(["contacts"], (old: Contact[] | undefined) => {
-        if (!old) return old;
-        return old.map((c) =>
-          c._id === chatId ? { ...c, isPinned: !c.isPinned } : c,
-        );
-      });
+      getQueryClient().setQueryData(
+        ["contacts"],
+        (old: Contact[] | undefined) => {
+          if (!old) return old;
+          return old.map((c) =>
+            c._id === chatId ? { ...c, isPinned: !c.isPinned } : c,
+          );
+        },
+      );
     } catch (error) {
       console.error("Toggle pin failed", error);
     }
   },
 
   toggleFavorite: async (chatId) => {
-    const queryClient = getQueryClient();
     try {
-      await api.post(`${API_URL}/chats/toggle-favorite/${chatId}`);
+      await api.post(`/chats/toggle-favorite/${chatId}`);
       set((s) => ({
         contacts: s.contacts.map((c) =>
           c.customChatId === chatId ? { ...c, isFavorite: !c.isFavorite } : c,
         ),
       }));
-
-      // update cache
-      queryClient.setQueryData(["contacts"], (old: Contact[] | undefined) => {
-        if (!old) return old;
-        return old.map((c) =>
-          c._id === chatId ? { ...c, isFavorite: !c.isFavorite } : c,
-        );
-      });
+      getQueryClient().setQueryData(
+        ["contacts"],
+        (old: Contact[] | undefined) => {
+          if (!old) return old;
+          return old.map((c) =>
+            c._id === chatId ? { ...c, isFavorite: !c.isFavorite } : c,
+          );
+        },
+      );
     } catch (error) {
       console.error("Toggle favorite failed", error);
     }
@@ -259,13 +290,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   addOptimisticMessage: (msg) => {
     const chatId = get().activeContact?.customChatId;
     const myId = useAuthStore.getState().myId;
-
-    const tempMsg = {
-      ...msg,
-      senderId: myId,
-      status: MessageStatus.SENDING,
-    };
-
+    const tempMsg = { ...msg, senderId: myId, status: MessageStatus.SENDING };
     set((s) => ({ messages: [...s.messages, tempMsg] }));
     updateMessagesCache(chatId, (old) => [...old, tempMsg]);
   },
@@ -273,8 +298,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   replaceTempMessage: (tempId, realData) => {
     const chatId = get().activeContact?.customChatId;
     const myId = useAuthStore.getState().myId;
-    const { socket, activeContact } = get();
-
+    const { activeContact } = get();
     const realMsg = {
       _id: realData.messageId,
       senderId: myId,
@@ -284,15 +308,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       status: MessageStatus.SENT,
       isTemp: false,
     };
-
     set((s) => ({
       messages: s.messages.map((m) => (m._id === tempId ? realMsg : m)),
     }));
     updateMessagesCache(chatId, (old) =>
       old.map((m) => (m._id === tempId ? realMsg : m)),
     );
-
-    // sidebar lastMessage update
     set((s) => ({
       contacts: s.contacts
         .map((c) =>
@@ -316,13 +337,13 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
   removeTempMessage: (tempId) => {
     const chatId = get().activeContact?.customChatId;
-    set((s) => ({
-      messages: s.messages.filter((m) => m._id !== tempId),
-    }));
+    set((s) => ({ messages: s.messages.filter((m) => m._id !== tempId) }));
     filterAllPagesCache(chatId, (m) => m._id !== tempId);
   },
 
-  //  Socket init
+  // ==========================================
+  // SOCKET
+  // ==========================================
   initSocket: () => {
     const existing = get().socket;
     if (existing) {
@@ -336,41 +357,28 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     });
     set({ socket });
 
-    //  Receive message
+    // ==========================================
+    // RECEIVE MESSAGE
+    // ==========================================
     socket.on("receive_private_message", async (data: Message) => {
-      const { activeContact } = get();
-      const { privateKey, signingKey } = useSessionStore.getState();
-      if (!privateKey || !signingKey) {
-        console.error(
-          "Private or signing key missing. Cannot decrypt message.",
-        );
-      }
-      const sender = get().contacts.find((c) => c._id === data.senderId);
+      const { activeContact, contacts } = get();
+      const sender = contacts.find((c) => c._id === data.senderId);
 
-      if (
-        sender &&
-        sender.publicKey &&
-        privateKey &&
-        signingKey &&
-        sender.customChatId
-      ) {
-        try {
-          // chat key get
-          const { getChatKey } = await SessionManager.bootstrapSession(
-            privateKey,
+      if (sender?.publicKey && sender?.customChatId) {
+        //  decrypt main content
+        data.content = await safeDecrypt(
+          data.content,
+          sender.customChatId,
+          sender.publicKey,
+        );
+
+        //  replyTo decrypt
+        if (data.replyTo) {
+          data.replyTo = await safeDecryptReplyTo(
+            data.replyTo,
+            sender.customChatId,
             sender.publicKey,
           );
-
-          const chatKey = await getChatKey(sender.customChatId);
-          const decryptedMessage = await FCPEngine.decryptMessage(
-            data.content,
-            chatKey,
-            signingKey,
-          );
-          data.content = decryptedMessage.text;
-        } catch (error) {
-          console.error("Failed to decrypt message", error);
-          data.content = "🔒 [Encrypted Message]";
         }
       } else {
         data.content = "🔒 [Encrypted Message]";
@@ -378,7 +386,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
       if (data.senderId === activeContact?._id) {
         const newMsg = { ...data, status: MessageStatus.READ };
-
         set((s) => {
           const exists = s.messages.some((m) => m._id === data._id);
           if (exists) return s;
@@ -389,14 +396,11 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             ),
           };
         });
-
-        // last page -> new message add + status update emit
         updateMessagesCache(activeContact.customChatId, (old) => {
           const exists = old.some((m) => m._id === data._id);
           if (exists) return old;
           return [...old, newMsg];
         });
-
         socket.emit("message_read", {
           chatRoomId: activeContact!.customChatId,
           senderId: data.senderId,
@@ -429,10 +433,9 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }
     });
 
-    //  Status acks
+    // STATUS ACKS
     socket.on("message_delivered_ack", () => {
       const chatId = get().activeContact?.customChatId;
-
       set((s) => ({
         messages: s.messages.map((m) =>
           m.status === MessageStatus.SENT || m.status === MessageStatus.SENDING
@@ -440,8 +443,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             : m,
         ),
       }));
-
-      // সব page-এ status update
       updateAllPagesCache(chatId, (m) =>
         m.status === MessageStatus.SENT || m.status === MessageStatus.SENDING
           ? { ...m, status: MessageStatus.DELIVERED }
@@ -451,7 +452,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
     socket.on("message_read_ack", () => {
       const chatId = get().activeContact?.customChatId;
-
       set((s) => ({
         messages: s.messages.map((m) =>
           m.status === MessageStatus.DELIVERED ||
@@ -460,7 +460,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             : m,
         ),
       }));
-
       updateAllPagesCache(chatId, (m) =>
         m.status === MessageStatus.DELIVERED || m.status === MessageStatus.SENT
           ? { ...m, status: MessageStatus.READ }
@@ -477,7 +476,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             status: MessageStatus.READ,
           })),
         }));
-
         updateAllPagesCache(chatRoomId, (m) => ({
           ...m,
           status: MessageStatus.READ,
@@ -485,35 +483,46 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }
     });
 
-    //  Edit ack
+    // ==========================================
+    // EDIT ACK —  decrypt newContent
+    // ==========================================
     socket.on(
       "message_edited_ack",
-      ({
+      async ({
         messageId,
         newContent,
       }: {
         messageId: string;
         newContent: string;
       }) => {
-        const chatId = get().activeContact?.customChatId;
+        const { activeContact } = get();
+        const chatId = activeContact?.customChatId;
+
+        let decryptedContent = newContent;
+        if (activeContact?.publicKey && chatId) {
+          decryptedContent = await safeDecrypt(
+            newContent,
+            chatId,
+            activeContact.publicKey,
+          );
+        }
 
         set((s) => ({
           messages: s.messages.map((m) =>
             m._id === messageId
-              ? { ...m, content: newContent, is_edited: true }
+              ? { ...m, content: decryptedContent, is_edited: true }
               : m,
           ),
         }));
-
         updateAllPagesCache(chatId, (m) =>
           m._id === messageId
-            ? { ...m, content: newContent, is_edited: true }
+            ? { ...m, content: decryptedContent, is_edited: true }
             : m,
         );
       },
     );
 
-    //  Delete ack
+    // DELETE ACK
     socket.on(
       "message_deleted_ack",
       ({
@@ -524,7 +533,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         deleteForEveryone: boolean;
       }) => {
         const chatId = get().activeContact?.customChatId;
-
         if (deleteForEveryone) {
           set((s) => ({
             messages: s.messages.map((m) =>
@@ -537,7 +545,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
                 : m,
             ),
           }));
-
           updateAllPagesCache(chatId, (m) =>
             m._id === messageId
               ? {
@@ -551,13 +558,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           set((s) => ({
             messages: s.messages.filter((m) => m._id !== messageId),
           }));
-
           filterAllPagesCache(chatId, (m) => m._id !== messageId);
         }
       },
     );
 
-    //  Star ack
+    // STAR ACK
     socket.on(
       "message_starred_ack",
       ({
@@ -568,20 +574,17 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         isImportant: boolean;
       }) => {
         const chatId = get().activeContact?.customChatId;
-
         set((s) => ({
           messages: s.messages.map((m) =>
             m._id === messageId ? { ...m, isImportant } : m,
           ),
         }));
-
         updateAllPagesCache(chatId, (m) =>
           m._id === messageId ? { ...m, isImportant } : m,
         );
       },
     );
 
-    //  Sidebar last message update
     socket.on("last_message_update", ({ chatId, lastMessage }: any) => {
       set((s) => ({
         contacts: s.contacts.map((c) =>
@@ -590,7 +593,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }));
     });
 
-    //  Online / Offline
     socket.on("user_online", ({ userId }: { userId: string }) => {
       set((s) => ({
         contacts: s.contacts.map((c) =>
@@ -615,7 +617,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }));
     });
 
-    //  Typing
     socket.on("show_typing", ({ senderId }: { senderId: string }) => {
       if (senderId === get().activeContact?._id) set({ isTyping: true });
     });
@@ -627,10 +628,11 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     return () => socket.disconnect();
   },
 
-  //  openChat
+  // ==========================================
+  // OPEN CHAT
+  // ==========================================
   openChat: (contact: Contact | null) => {
     const { socket, activeContact } = get();
-
     if (!contact) {
       set({
         activeContact: null,
@@ -640,9 +642,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       });
       return;
     }
-
     if (activeContact?._id === contact._id) return;
-
     set({
       activeContact: contact,
       isTyping: false,
@@ -654,15 +654,15 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         c._id === contact._id ? { ...c, unreadCount: 0 } : c,
       ),
     });
-
     socket?.emit("mark_all_read", {
       chatRoomId: contact.customChatId,
       senderId: contact._id,
     });
   },
 
-  //  sendMessage
-  //  sendMessage
+  // ==========================================
+  // SEND MESSAGE
+  // ==========================================
   sendMessage: async () => {
     const {
       msgInput,
@@ -673,56 +673,32 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       forwardMsg,
       _typingTimeout,
     } = get();
-
     const myId = useAuthStore.getState().myId;
 
     if (!msgInput.trim() || !activeContact || !myId) return;
+
     const content = msgInput.trim();
     const friendPublicKey = activeContact.publicKey;
-
-    const { privateKey, signingKey } = useSessionStore.getState();
-
-    if (!friendPublicKey) {
-      console.error("Friend's public key is missing. Cannot send message.");
-      return;
-    }
-
-    if (!privateKey || !signingKey) {
-      console.error("Private or signing key missing. Cannot send message.");
-
-      // try to get IndexBD stored keys and update session store
-      try {
-      
-      } catch (error) {
-        return;
-      }
-
-
-
-      return;
-    }
-
     const chatId = activeContact.customChatId;
-    if (!chatId) {
-      console.error("Chat ID is missing. Cannot send message.");
+
+    if (!friendPublicKey || !chatId) {
+      console.error("Public key or Chat ID is missing.");
       return;
     }
+
     set({ msgInput: "" });
 
     try {
-      const { getChatKey } = await SessionManager.bootstrapSession(
-        privateKey,
+      const encryptedContent = await secureEncryptMessage(
+        content,
+        chatId,
         friendPublicKey,
+        "text",
       );
-      const chatKey = await getChatKey(chatId);
-
-      const encryptedContent = await FCPEngine.encryptMessage({
-        text: content,
-        type: "text",
-        chatId: chatId,
-        chatKey: chatKey,
-        signingKey: signingKey,
-      });
+      if (!encryptedContent) {
+        console.error("Encryption failed, message not sent.");
+        return;
+      }
 
       // EDIT MODE
       if (editingMsg) {
@@ -761,24 +737,26 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       clearTimeout(_typingTimeout);
 
       const tempId = `temp_${Date.now()}`;
+      const plainReplyTo = replyTo
+        ? {
+            _id: replyTo._id!,
+            content: replyTo.content,
+            senderId: replyTo.senderId,
+          }
+        : null;
 
       const tempMsg: Message = {
         _id: tempId,
         senderId: myId,
-        content, 
+        content,
         createdAt: new Date().toISOString(),
         status: MessageStatus.SENDING,
-        replyTo: replyTo
-          ? {
-              _id: replyTo._id!,
-              content: replyTo.content,
-              senderId: replyTo.senderId,
-            }
-          : null,
+        replyTo: plainReplyTo,
       };
 
       set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
       updateMessagesCache(chatId, (old) => [...old, tempMsg]);
+
       socket?.emit(
         "send_message",
         {
@@ -793,6 +771,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
               senderId: myId,
               content,
               status: MessageStatus.SENT,
+              replyTo: plainReplyTo, // plantext replyTo
             };
 
             set((s) => ({
@@ -815,7 +794,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
                     new Date(a.lastMessage?.createdAt || 0).getTime(),
                 ),
             }));
-
             updateMessagesCache(chatId, (old) =>
               old.map((m) => (m._id === tempId ? sentMsg : m)),
             );
@@ -838,7 +816,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     }
   },
 
-  //  handleTyping
   handleTyping: (value: string) => {
     const { activeContact, socket, _typingTimeout } = get();
     set({ msgInput: value });
@@ -851,7 +828,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     set({ _typingTimeout: t });
   },
 
-  //  handleAction
   handleAction: (action: string, msg: Message) => {
     const { socket, activeContact } = get();
     const chatId = activeContact?.customChatId;
@@ -860,11 +836,9 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       case "reply":
         set({ replyTo: msg, editingMsg: null });
         break;
-
       case "copy":
         navigator.clipboard.writeText(msg.content);
         break;
-
       case "star":
         socket?.emit(
           "toggle_star",
@@ -883,15 +857,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           },
         );
         break;
-
       case "forward":
         set({ forwardMsg: msg });
         break;
-
       case "edit":
         set({ editingMsg: msg, replyTo: null, msgInput: msg.content });
         break;
-
       case "delete_me":
         socket?.emit(
           "delete_message",
@@ -906,7 +877,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           },
         );
         break;
-
       case "delete_all":
         socket?.emit(
           "delete_message",
@@ -944,10 +914,10 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         break;
     }
   },
+
   handleForward: (contactId: string) => {
     const { forwardMsg, socket, activeContact, contacts } = get();
     const myId = useAuthStore.getState().myId;
-
     if (!forwardMsg || !myId) return;
 
     const targetContact = contacts.find((c) => c._id === contactId);
@@ -956,11 +926,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
     socket?.emit(
       "send_message",
-      {
-        receiverId: contactId,
-        content,
-        isForwarded: true,
-      },
+      { receiverId: contactId, content, isForwarded: true },
       (res: any) => {
         if (res?.success) {
           const sentMsg: Message = {
@@ -969,20 +935,15 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             status: MessageStatus.SENT,
             isForwarded: true,
           };
-
           set((s) => ({
             messages:
               activeContact?._id === contactId
                 ? [...s.messages, sentMsg]
                 : s.messages,
-
             contacts: s.contacts
               .map((c) =>
                 c._id === contactId
-                  ? {
-                      ...c,
-                      lastMessage: { content, createdAt: now },
-                    }
+                  ? { ...c, lastMessage: { content, createdAt: now } }
                   : c,
               )
               .sort(
@@ -991,16 +952,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
                   new Date(a.lastMessage?.createdAt || 0).getTime(),
               ),
           }));
-
-          // target contact-এর chat cache update
           if (targetContact?.customChatId) {
             updateMessagesCache(targetContact.customChatId, (old) => [
               ...old,
               sentMsg,
             ]);
           }
-
-          // QueryClient contacts cache-ও update
           getQueryClient().setQueryData(
             ["contacts"],
             (old: Contact[] | undefined) => {
@@ -1021,29 +978,23 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         }
       },
     );
-
     set({ forwardMsg: null });
   },
 
-  //  handleNewChatIdChange
   handleNewChatIdChange: (val: string) => {
     const { _previewTimeout } = get();
     const myId = useAuthStore.getState().myId;
-
     set({ newChatId: val, newChatPreview: [], newChatError: "" });
     clearTimeout(_previewTimeout);
-
     if (val.trim().length < 2) return;
-
     if (val.trim() === myId) {
       set({ newChatError: "Cannot chat with yourself" });
       return;
     }
-
     const t = setTimeout(async () => {
       set({ newChatLoading: true });
       try {
-        const res = await api(`${API_URL}/chats/search?q=${val.trim()}`);
+        const res = await api(`/chats/search?q=${val.trim()}`);
         const data = res.data;
         if (data.success && data.users.length > 0) {
           set({
@@ -1063,15 +1014,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         set({ newChatLoading: false });
       }
     }, 500);
-
     set({ _previewTimeout: t });
   },
 
-  //  createAndOpenChat
   createAndOpenChat: async (selectedUser: NewChatPreview) => {
     const { socket } = get();
     const myId = useAuthStore.getState().myId;
-
     if (!selectedUser || !myId) return;
     set({ newChatLoading: true });
     try {
@@ -1080,7 +1028,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         senderId: myId,
       });
       if (data.success) {
-        console.log("Chat created:", data.chat);
         const nc: Contact = {
           _id: selectedUser._id,
           name: selectedUser.name,
@@ -1119,7 +1066,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     }
   },
 
-  //  closeNewChat
   closeNewChat: () => {
     clearTimeout(get()._previewTimeout);
     set({
@@ -1130,7 +1076,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     });
   },
 
-  //  openCtx
   openCtx: (e: React.MouseEvent, msg: Message, isMine: boolean) => {
     e.preventDefault();
     e.stopPropagation();
