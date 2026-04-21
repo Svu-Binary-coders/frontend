@@ -6,7 +6,12 @@ import { API_URL } from "@/lib/chat-helpers";
 import { MessageStatus, StorageProvider } from "@/types/chat";
 import { getWasmEngine, getFreshHeap } from "@/lib/wasm/index"; // 🔴 Manager ইম্পোর্ট
 
-export type AttachmentType = "image" | "video" | "audio" | "file";
+export type AttachmentType =
+  | "image"
+  | "video"
+  | "audio"
+  | "file"
+  | "VoiceMessage";
 
 export interface SelectedMedia {
   id: string;
@@ -64,11 +69,12 @@ const SIZE_LIMITS: Record<AttachmentType, number> = {
   video: 50 * 1024 * 1024,
   audio: 20 * 1024 * 1024,
   file: 30 * 1024 * 1024,
+  VoiceMessage: 5 * 1024 * 1024,
 };
 
 const MAX_FILES = 5;
 
-//  🔴 Updated WASM Image Compression with Manager
+// Wasm compression function, which takes a File and returns a compressed File (or the original if compression fails)
 const compressWithWasm = async (
   file: File,
   quality: number = 75,
@@ -269,6 +275,13 @@ interface MediaState {
   uploadingMedias: UploadingMedia[];
   isUploading: boolean;
   uploadError: string | null;
+  uploadVoice: (
+    file: File,
+    chatId: string,
+    onOptimistic: (msg: OptimisticPayload | any) => void,
+    onSuccess: (data: ConfirmSuccessPayload) => void,
+    onError: (tempId: string) => void,
+  ) => Promise<void>;
   addFiles: (files: File[]) => Promise<{ ok: boolean; error?: string }>;
   removeFile: (id: string) => void;
   clearMedia: () => void;
@@ -301,8 +314,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       let processedFile = originalFile;
 
       if (type === "image") {
-        // 🔴 আমরা এখন আমাদের নতুন কম্প্রেস ফাংশনটি কল করছি
-        processedFile = await compressWithWasm(originalFile, 80); // ৮০ কোয়ালিটি ব্যবহার করা হচ্ছে
+        processedFile = await compressWithWasm(originalFile, 80);
       }
 
       console.log(
@@ -427,6 +439,100 @@ export const useMediaStore = create<MediaState>((set, get) => ({
           error.response?.data?.message ?? error.message ?? "Upload failed.",
       });
       onError(tempId);
+    }
+  },
+  uploadVoice: async (file, chatId, onOptimistic, onSuccess, onError) => {
+    const tempId = `temp_${Date.now()}`;
+    const previewUrl = URL.createObjectURL(file);
+    const mediaId = `voice_${Date.now()}`;
+
+    // optimistic update , instantly show the voice message in the chat with a temporary ID and "sending" status
+    onOptimistic({
+      _id: tempId,
+      isTemp: true,
+      content: "",
+      attachments: [
+        {
+          url: previewUrl,
+          type: "VoiceMessage",
+          name: file.name,
+          size: file.size,
+          mimeType: "audio/webm",
+        },
+      ],
+      createdAt: new Date().toISOString(),
+      status: MessageStatus.SENDING,
+    });
+
+    // add the uploading media to the store to show upload progress in the UI
+    set((state) => ({
+      isUploading: true,
+      uploadingMedias: [
+        ...state.uploadingMedias,
+        {
+          id: mediaId,
+          type: "audio",
+          previewUrl,
+          name: file.name,
+          size: file.size,
+          progress: 0,
+          done: false,
+        },
+      ],
+    }));
+
+    try {
+      //  upload the voice file and get the attachment data (like URL) in response
+      const uploadedAtt = await uploadSingle(
+        { id: mediaId, file, previewUrl, type: "audio" },
+        (pct) => {
+          set((s) => ({
+            uploadingMedias: s.uploadingMedias.map((u) =>
+              u.id === mediaId ? { ...u, progress: pct, done: pct === 100 } : u,
+            ),
+          }));
+        },
+      );
+
+      // Since this is a voice message, we need to explicitly set the type to "VoiceMessage" for the backend to recognize it as such
+      uploadedAtt.type = "VoiceMessage";
+
+      const confirmRes = await api.post(
+        `${API_URL}/uploads/confirm-attachment`,
+        {
+          chatId,
+          text: "",
+          attachments: [uploadedAtt],
+        },
+      );
+
+// after upload (regardless of success or failure), we need to remove the uploading media from the store and revoke the preview URL to free up memory
+      set((s) => ({
+        isUploading: s.uploadingMedias.length <= 1 ? false : s.isUploading,
+        uploadingMedias: s.uploadingMedias.filter((u) => u.id !== mediaId),
+      }));
+
+      // if upload and confirmation is successful, we call onSuccess with the real message ID and attachment data to update the optimistic message in the chat. If it fails, we call onError to revert the optimistic update. In both cases, we also revoke the preview URL since it's no longer needed after upload completes.
+      if (confirmRes.data.success) {
+        onSuccess({
+          tempId,
+          messageId: confirmRes.data.messageId || confirmRes.data.message?._id,
+          attachments: confirmRes.data.attachments ||
+            confirmRes.data.message?.attachments || [uploadedAtt],
+          text: "",
+        });
+        setTimeout(() => URL.revokeObjectURL(previewUrl), 2000);
+      } else {
+        onError(tempId);
+      }
+    } catch (error) {
+      console.error("Voice upload failed:", error);
+      onError(tempId);
+      set((s) => ({
+        isUploading: s.uploadingMedias.length <= 1 ? false : s.isUploading,
+        uploadingMedias: s.uploadingMedias.filter((u) => u.id !== mediaId),
+      }));
+      URL.revokeObjectURL(previewUrl);
     }
   },
 }));

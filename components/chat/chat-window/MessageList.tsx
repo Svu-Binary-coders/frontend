@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { useEffect, useRef, useCallback, useState } from "react";
 import { groupMessagesByDate } from "@/utils/date";
@@ -11,6 +12,9 @@ import { useAppearanceStore } from "@/stores/appearanceStore";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
 
+const NEAR_BOTTOM_PX = 150;
+const SHOW_BTN_PX = 250;
+
 export default function MessageList() {
   const { messages, activeContact } = useChatStore();
   const { wallpaper, compactMode } = useAppearanceStore();
@@ -23,117 +27,113 @@ export default function MessageList() {
     fetchNextPage,
   } = useChatHistory(myId, activeContact?.customChatId, activeContact?._id);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const prevScrollHeightRef = useRef<number>(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const prevScrollHeightRef = useRef(0);
   const prevLengthRef = useRef(0);
-  const isFirstLoad = useRef(true);
+  const isFirstLoadRef = useRef(true);
   const isFetchingRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const isPaginatingRef = useRef(false);
 
-  // 🟢 State: Floating Scroll Button
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // 🟢 React Warning Fix: Render Phase State Update
-  const [prevContactId, setPrevContactId] = useState(activeContact?._id);
-  if (activeContact?._id !== prevContactId) {
-    setPrevContactId(activeContact?._id);
-    setShowScrollButton(false); // চ্যাট চেঞ্জ হলে বাটন সাথে সাথে হাইড হয়ে যাবে
-  }
+  //  scrollToBottom
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "instant") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = true;
+    // setShowScrollButton কে rAF এর ভেতরে রাখলে effect এর synchronous setState warning আসে না
+    requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+      setShowScrollButton(false);
+    });
+  }, []);
 
-  //  Helper Function
-  const scrollToBottom = (behavior: ScrollBehavior = "instant") => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({
-        top: scrollContainerRef.current.scrollHeight,
-        behavior,
-      });
-    }
-  };
-
-  // 1. Chat Switch Reset
+  //  1. Chat switch reset
   useEffect(() => {
-    isFirstLoad.current = true;
+    isFirstLoadRef.current = true;
     prevLengthRef.current = 0;
+    isNearBottomRef.current = true;
+    const rafId = requestAnimationFrame(() => {
+      setShowScrollButton(false);
+    });
+
+    return () => cancelAnimationFrame(rafId);
   }, [activeContact?._id]);
-
-  // 2. Initial Load Scroll
+  // intial load , we want to scroll to bottom only after the messages are loaded. If we scroll before loading, it might scroll to the wrong position because the messages haven't been rendered yet, which can cause the scroll to jump around or not reach the bottom. By adding msgLoading as a dependency and checking it before scrolling, we ensure that we only scroll to the bottom once the messages are fully loaded and rendered in the store.
   useEffect(() => {
-    if (messages.length > 0 && isFirstLoad.current) {
-      setTimeout(() => {
-        scrollToBottom("instant");
-      }, 10);
-      isFirstLoad.current = false;
-    }
-  }, [messages.length, activeContact?._id]);
+    if (!messages.length) return;
+    if (!isFirstLoadRef.current) return;
+    if (msgLoading) return; // if messages are still loading, we don't want to scroll yet because the messages might not be fully loaded in the store, which can cause the scroll to jump around or not reach the bottom. We'll wait for the loading to finish and let the next effect handle the scrolling.
+    isFirstLoadRef.current = false;
+    prevLengthRef.current = messages.length;
+    scrollToBottom("instant");
+  }, [messages.length, activeContact?._id, msgLoading, scrollToBottom]);
 
-  // 3. New Message Scroll Logic
+  //  3. New message arrived
   useEffect(() => {
-    if (isFirstLoad.current) return;
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const newLength = messages.length;
-    const added = newLength - prevLengthRef.current;
-    prevLengthRef.current = newLength;
-
-    if (added === 1) {
-      const isNearBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight <
-        150;
-
-      if (isNearBottom) {
-        setTimeout(() => {
-          scrollToBottom("smooth");
-        }, 10);
-      } else {
-        setTimeout(() => {
-          setShowScrollButton(true);
-        }, 0);
-      }
+    if (isFirstLoadRef.current) return;
+    // if we're currently paginating (fetching older messages), we don't want to auto-scroll to bottom when new messages arrive, because it can disrupt the user's position. Instead, we just update the prevLengthRef and let the pagination effect handle the scroll position after loading is done.
+    if (isPaginatingRef.current) {
+      prevLengthRef.current = messages.length;
+      return;
     }
-  }, [messages]);
 
-  // 4. Restore scroll position after fetching older messages
+    const added = messages.length - prevLengthRef.current;
+    if (added <= 0) return;
+    prevLengthRef.current = messages.length;
+
+    const lastMsg = messages[messages.length - 1];
+    const isMyMsg = (lastMsg as any)?.senderId === myId;
+    const isOptimistic = !!(lastMsg as any)?.isTemp;
+
+    if (isMyMsg || isOptimistic || isNearBottomRef.current) {
+      scrollToBottom("smooth");
+    } else {
+      // if new messages arrive and the user is not near the bottom, we show the scroll button to indicate that there are new messages and allow them to quickly jump to the latest message. We use a small timeout to ensure that the state update happens after any potential layout shifts caused by new messages being rendered, which can help prevent janky behavior with the scroll button appearing/disappearing too quickly.
+      setTimeout(() => setShowScrollButton(true), 0);
+    }
+  }, [messages, myId, scrollToBottom]);
+
+  //  4. Restore position after pagination
   useEffect(() => {
-    if (!isFetchingNextPage) {
-      const container = scrollContainerRef.current;
-      if (!container || !prevScrollHeightRef.current) return;
-      const added = container.scrollHeight - prevScrollHeightRef.current;
-      container.scrollTop += added;
-      prevScrollHeightRef.current = 0;
-    }
+    if (isFetchingNextPage) return;
+    const el = scrollContainerRef.current;
+    if (!el || !prevScrollHeightRef.current) return;
+    el.scrollTop += el.scrollHeight - prevScrollHeightRef.current;
+    prevScrollHeightRef.current = 0;
   }, [isFetchingNextPage]);
 
-  //  Handle Scroll (Top & Bottom)
+  //  Scroll handler
   const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
 
-    // Fetch older messages when scrolled to top
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distFromBottom <= NEAR_BOTTOM_PX;
+    setShowScrollButton(distFromBottom > SHOW_BTN_PX);
+
     if (
-      container.scrollTop < 80 &&
+      el.scrollTop < 80 &&
       hasNextPage &&
       !isFetchingNextPage &&
       !isFetchingRef.current
     ) {
       isFetchingRef.current = true;
-      prevScrollHeightRef.current = container.scrollHeight;
+      isPaginatingRef.current = true;
+      prevScrollHeightRef.current = el.scrollHeight;
       fetchNextPage().finally(() => {
         isFetchingRef.current = false;
+        // small delay: messages state update, clear pagination flag, and scroll position adjustment are all happening around the same time after pagination, so to prevent any potential race conditions or janky behavior, we add a small timeout to ensure that the pagination flag is cleared after all the related updates are done. This helps ensure a smoother user experience when loading older messages.
+        setTimeout(() => {
+          isPaginatingRef.current = false;
+        }, 100);
       });
-    }
-
-    // Floating Button Logic
-    const distanceFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom > 250) {
-      setShowScrollButton(true);
-    } else {
-      setShowScrollButton(false);
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  //  Wallpaper Styles
+  //  Wallpaper
   const wallpaperBg =
     wallpaper === "gradient1"
       ? "bg-linear-to-br from-sky-100 to-blue-50 dark:from-sky-900 dark:to-slate-900"
@@ -193,7 +193,6 @@ export default function MessageList() {
 
   return (
     <div className="relative flex-1 flex flex-col min-h-0">
-      {/*  Main Message Container  */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -237,19 +236,27 @@ export default function MessageList() {
             </div>
           ))}
           <TypingIndicator />
-          <div ref={bottomRef} />
+          <div ref={bottomRef} className="h-px" />
         </div>
       </div>
 
-      {/*  Floating Go to Bottom Button  */}
-      {showScrollButton && (
-        <button
-          onClick={() => scrollToBottom("smooth")}
-          className="absolute bottom-6 right-6 p-2.5 rounded-full bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-[0_4px_14px_rgba(0,0,0,0.15)] border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all z-50 animate-in fade-in slide-in-from-bottom-5"
-        >
-          <ChevronDown className="w-5 h-5" />
-        </button>
-      )}
+      {/* Floating scroll-to-bottom button */}
+      <button
+        onClick={() => scrollToBottom("smooth")}
+        aria-label="Scroll to latest"
+        className={cn(
+          "absolute bottom-4 right-5 z-50 h-10 w-10 rounded-full",
+          "bg-white dark:bg-slate-800 shadow-lg border border-slate-200 dark:border-slate-700",
+          "flex items-center justify-center text-slate-600 dark:text-slate-300",
+          "hover:bg-slate-50 dark:hover:bg-slate-700",
+          "transition-all duration-200 ease-out",
+          showScrollButton
+            ? "opacity-100 translate-y-0 pointer-events-auto"
+            : "opacity-0 translate-y-3 pointer-events-none",
+        )}
+      >
+        <ChevronDown className="w-5 h-5" />
+      </button>
     </div>
   );
 }

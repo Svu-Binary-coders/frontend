@@ -13,6 +13,7 @@ import {
   Crown,
   ChevronLeft,
   Settings as SettingsIcon,
+  LockKeyholeIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -26,6 +27,7 @@ import { DataAndStorage } from "../settings/DataAndStorage";
 import { Help } from "../settings/Help";
 import Accounts from "../settings/Accounts";
 import ChatLock from "../settings/ChatLock";
+import DeviceList from "../settings/devices";
 
 type SettingSection =
   | "profile"
@@ -36,7 +38,8 @@ type SettingSection =
   | "appearance"
   | "security"
   | "data"
-  | "help";
+  | "help"
+  | "devices";
 
 interface NavItem {
   id: SettingSection;
@@ -53,12 +56,14 @@ const VALID_SECTIONS: SettingSection[] = [
   "security",
   "data",
   "help",
+  "devices",
 ];
 
 const NAV_ITEMS: NavItem[] = [
   { id: "profile", label: "Profile", icon: UserCircle },
   { id: "account", label: "Account", icon: Lock },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "devices", label: "Devices", icon: LockKeyholeIcon },
   { id: "privacy", label: "Privacy & Security", icon: Shield },
   { id: "chat-lock", label: "Chat Lock", icon: MessageSquare },
   { id: "appearance", label: "Appearance", icon: Paintbrush },
@@ -97,6 +102,8 @@ function SettingsContent({
         return <Help />;
       case "chat-lock":
         return <ChatLock/>;
+      case "devices":
+        return <DeviceList />;
       default:
         return (
           <div className="flex flex-col items-center justify-center h-64 opacity-20">

@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
 import {
   Send,
@@ -15,22 +15,26 @@ import {
   Plus,
   Loader2,
   Check,
-  Mic, // 🔴 New Icon
-  Trash2, // 🔴 New Icon
-  Square, // 🔴 New Icon
+  Mic,
+  Trash2,
+  Square,
+  ExternalLink,
 } from "lucide-react";
+import { useLinkPreview } from "@/hooks/useLinkPreview";
 import { useChatStore } from "@/stores/chatStore";
 import {
   useMediaStore,
   SelectedMedia,
   UploadingMedia,
 } from "@/stores/mediaStore";
-import { useVoiceStore } from "@/stores/voiceStore"; // 🔴 New Store
+import { useVoiceStore } from "@/stores/voiceStore";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { extractUrl } from "@/lib/linkDetector";
 
-// File type icon
+const MAX_FILES = 5;
+
 function FileTypeIcon({ type }: { type: string }) {
   if (type === "video") return <Film className="h-6 w-6 text-purple-400" />;
   if (type === "audio") return <Music className="h-6 w-6 text-green-400" />;
@@ -42,25 +46,25 @@ function sizeLabel(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
-// Helper to safely extract string from object
+
 const safeStr = (val: unknown): string => {
   if (!val) return "";
   if (typeof val === "string") return val;
   if (typeof val === "object") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const obj = val as any;
     if (typeof obj.text === "string") return obj.text;
     if (typeof obj.content === "string") return obj.content;
   }
   return "";
 };
-//  Time Formatter Helper for Voice Recording
+
 function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
-// SVG circular progress ring
 function CircularProgress({
   progress,
   done,
@@ -71,7 +75,6 @@ function CircularProgress({
   const r = 20;
   const circ = 2 * Math.PI * r;
   const offset = circ - (progress / 100) * circ;
-
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
       {done ? (
@@ -111,7 +114,6 @@ function CircularProgress({
   );
 }
 
-// Uploading thumbnail card
 function UploadingThumb({ item }: { item: UploadingMedia }) {
   return (
     <div className="relative shrink-0 h-16 w-16">
@@ -145,7 +147,6 @@ function UploadingThumb({ item }: { item: UploadingMedia }) {
   );
 }
 
-// Pending thumbnail card
 function PendingThumb({
   item,
   onRemove,
@@ -202,7 +203,6 @@ function PendingThumb({
 export default function InputBar() {
   const {
     msgInput,
-    handleTyping,
     sendMessage,
     editingMsg,
     replyTo,
@@ -214,30 +214,108 @@ export default function InputBar() {
     removeTempMessage,
   } = useChatStore();
 
+  // 🔴 ১. mediaStore থেকে uploadVoice ইম্পোর্ট করা হলো এবং isUploading নেওয়া হলো
   const {
     selectedMedias,
     uploadingMedias,
-    isUploading: isMediaUploading,
+    isUploading, // 👈 এটি এখন সব আপলোডের মাস্টার লোডিং স্টেট
     addFiles,
     removeFile,
     clearMedia,
     uploadAndConfirm,
+    uploadVoice, // 👈 নতুন ফাংশন
   } = useMediaStore();
 
-  // 🔴 Voice Store Integration
+  // 🔴 ২. voiceStore থেকে প্রিভিউ করার জন্য প্রয়োজনীয় সবকিছু নেওয়া হলো
   const {
     isRecording,
     recordingTime,
     compressedAudioFile,
-    isUploading: isVoiceUploading,
     startRecording,
     stopRecording,
     cancelRecording,
-    sendVoiceMessage,
   } = useVoiceStore();
+
+  const [localInput, setLocalInput] = useState("");
+  const typedUrl = extractUrl(msgInput);
+  const [debouncedUrl, setDebouncedUrl] = useState<string | null>(null);
+  const [hideLinkPreview, setHideLinkPreview] = useState(false);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const isEmittingTypingRef = useRef(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLocalInput(msgInput);
+  }, [msgInput]);
+
+  useEffect(() => {
+    if (replyTo || editingMsg) {
+      const t = setTimeout(() => inputRef.current?.focus(), 80);
+      return () => clearTimeout(t);
+    }
+  }, [replyTo, editingMsg]);
+
+  useEffect(() => {
+    if (!msgInput.trim()) {
+      setDebouncedUrl(null);
+      setHideLinkPreview(false);
+      return;
+    }
+
+    const handler = setTimeout(() => {
+      const url = extractUrl(msgInput);
+      const isValidDomain =
+        /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/.*)?$/.test(url || "");
+
+      if (url && isValidDomain) {
+        setDebouncedUrl(url);
+      } else {
+        setDebouncedUrl(null);
+      }
+    }, 500);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [msgInput]);
+
+  const { data: livePreview, isLoading: isPreviewLoading } = useLinkPreview(
+    debouncedUrl && !hideLinkPreview ? debouncedUrl : null,
+  );
+
+  const handleLocalChange = (value: string) => {
+    setLocalInput(value);
+    useChatStore.setState({ msgInput: value });
+
+    if (!activeContact) return;
+    const socket = useChatStore.getState().socket;
+
+    if (!isEmittingTypingRef.current) {
+      socket?.emit("typing", { receiverId: activeContact._id });
+      isEmittingTypingRef.current = true;
+    }
+    clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      socket?.emit("stop_typing", { receiverId: activeContact._id });
+      isEmittingTypingRef.current = false;
+    }, 2000);
+  };
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(typingTimerRef.current);
+      if (isEmittingTypingRef.current && activeContact) {
+        useChatStore.getState().socket?.emit("stop_typing", {
+          receiverId: activeContact._id,
+        });
+        isEmittingTypingRef.current = false;
+      }
+    };
+  }, [activeContact]);
 
   const pickers = [
     {
@@ -280,7 +358,7 @@ export default function InputBar() {
   };
 
   const handleEmojiClick = (emojiObject: EmojiClickData) => {
-    handleTyping(msgInput + emojiObject.emoji);
+    useChatStore.setState({ msgInput: localInput + emojiObject.emoji });
     inputRef.current?.focus();
   };
 
@@ -289,23 +367,42 @@ export default function InputBar() {
     inputRef.current?.focus();
   };
 
+  // 🔴 ৩. Send বাটনের মাস্টার লজিক
   const onSendMessage = async () => {
     if (!activeContact?.customChatId) return;
 
-    // 🔴 1. Voice Message Send Logic
+    clearTimeout(typingTimerRef.current);
+    if (isEmittingTypingRef.current) {
+      useChatStore
+        .getState()
+        .socket?.emit("stop_typing", { receiverId: activeContact._id });
+      isEmittingTypingRef.current = false;
+    }
+
+    // 🟢 ৩.১: Voice Message Send (ইউজার যদি প্রিভিউ করে সেন্ডে চাপ দেয়)
     if (compressedAudioFile) {
-      if (isVoiceUploading) return;
-      await sendVoiceMessage(activeContact.customChatId);
+      if (isUploading) return;
+      await uploadVoice(
+        compressedAudioFile,
+        activeContact.customChatId,
+        (tempMsg) => addOptimisticMessage(tempMsg),
+        (realData) => replaceTempMessage(realData.tempId, realData),
+        (tempId) => {
+          removeTempMessage(tempId);
+          toast.error("Failed to send voice message");
+        },
+      );
+      cancelRecording(); // প্রিভিউ ডিলিট করে ইনপুট ক্লিন করা
       return;
     }
 
-    // 2. Media Send Logic
+    // 🟢 ৩.২: Media (Image/Video/File) Send
     if (selectedMedias.length > 0) {
-      if (isMediaUploading) return;
-      const text = msgInput.trim();
+      if (isUploading) return;
+      const text = localInput.trim();
+      setLocalInput("");
       useChatStore.setState({ msgInput: "" });
       inputRef.current?.focus();
-
       await uploadAndConfirm(
         activeContact.customChatId,
         text,
@@ -319,9 +416,10 @@ export default function InputBar() {
       return;
     }
 
-    // 3. Text Send Logic
-    if (msgInput.trim()) {
+    // 🟢 ৩.৩: Text Send
+    if (localInput.trim()) {
       sendMessage();
+      setLocalInput("");
       setShowEmojiPicker(false);
       inputRef.current?.focus();
     }
@@ -333,21 +431,21 @@ export default function InputBar() {
       onSendMessage();
     }
     if (e.key === "Escape") {
+      setLocalInput("");
       useChatStore.setState({ editingMsg: null, replyTo: null, msgInput: "" });
       setShowEmojiPicker(false);
       clearMedia();
-      cancelRecording(); // 🔴 Cancel voice recording on Esc
+      cancelRecording();
     }
   };
 
   const openPicker = (id: string) => document.getElementById(id)?.click();
 
-  // 🔴 Update hasContent to check for voice files too
+  // 🔴 ৪. Button Disable লজিক আপডেট
   const hasContent =
-    msgInput.trim().length > 0 ||
+    localInput.trim().length > 0 ||
     selectedMedias.length > 0 ||
     !!compressedAudioFile;
-  const isAnyUploading = isMediaUploading || isVoiceUploading;
 
   return (
     <div className="relative border-t border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900 px-4 py-3 shrink-0 transition-colors duration-200">
@@ -418,6 +516,67 @@ export default function InputBar() {
         </div>
       )}
 
+      {/* Live Link Preview UI */}
+      {debouncedUrl &&
+        !hideLinkPreview &&
+        (isPreviewLoading || livePreview?.title) && (
+          <div className="relative flex items-center gap-3 mb-3 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 dark:bg-slate-800/80 dark:border-slate-700 animate-in slide-in-from-bottom-2 duration-200">
+            {isPreviewLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 w-full">
+                <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                <span>Loading preview...</span>
+              </div>
+            ) : (
+              <>
+                {livePreview?.image ? (
+                  <div className="h-10 w-10 shrink-0 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+                    <img
+                      src={livePreview.image}
+                      alt="preview"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="h-10 w-10 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                    <ExternalLink className="h-4 w-4 text-slate-400" />
+                  </div>
+                )}
+
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
+                    {livePreview?.title ||
+                      livePreview?.siteName ||
+                      "Unknown Link"}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                    {livePreview?.description ||
+                      (() => {
+                        try {
+                          return new URL(
+                            debouncedUrl.startsWith("http")
+                              ? debouncedUrl
+                              : `https://${debouncedUrl}`,
+                          ).hostname;
+                        } catch {
+                          return debouncedUrl;
+                        }
+                      })()}
+                  </span>
+                </div>
+              </>
+            )}
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setHideLinkPreview(true)}
+              className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 shadow-sm hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-500"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+
       {/* Media strip */}
       {(selectedMedias.length > 0 || uploadingMedias.length > 0) && (
         <div className="flex items-end gap-2 mb-3 overflow-x-auto pb-1 scrollbar-none">
@@ -431,7 +590,7 @@ export default function InputBar() {
           {uploadingMedias.map((m) => (
             <UploadingThumb key={m.id} item={m} />
           ))}
-          {!isMediaUploading &&
+          {!isUploading &&
             selectedMedias.length < MAX_FILES &&
             selectedMedias.length > 0 && (
               <button
@@ -452,15 +611,18 @@ export default function InputBar() {
           <Button
             variant="ghost"
             size="icon"
-            disabled={isAnyUploading || isRecording}
+            disabled={isUploading || isRecording}
             className="h-9 w-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0 disabled:opacity-40"
           >
             <Paperclip className="h-4.5 w-4.5 text-slate-400" />
           </Button>
-
           <div
             className={cn(
-              "absolute bottom-11 left-0 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-lg p-1.5 flex flex-col gap-0.5 min-w-[130px] opacity-0 pointer-events-none scale-95 origin-bottom-left group-focus-within/picker:opacity-100 group-focus-within/picker:pointer-events-auto group-focus-within/picker:scale-100 group-hover/picker:opacity-100 group-hover/picker:pointer-events-auto group-hover/picker:scale-100 transition-all duration-150",
+              "absolute bottom-11 left-0 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-lg p-1.5 flex flex-col gap-0.5 min-w-[130px]",
+              "opacity-0 pointer-events-none scale-95 origin-bottom-left",
+              "group-focus-within/picker:opacity-100 group-focus-within/picker:pointer-events-auto group-focus-within/picker:scale-100",
+              "group-hover/picker:opacity-100 group-hover/picker:pointer-events-auto group-hover/picker:scale-100",
+              "transition-all duration-150",
             )}
           >
             {pickers.map(({ id, icon: Icon, label }) => (
@@ -475,17 +637,16 @@ export default function InputBar() {
           </div>
         </div>
 
-        {/* 🔴 Dynamic Input Area (Text OR Voice Recording UI) */}
+        {/* Dynamic Input Area */}
         <div
           className={cn(
             "flex-1 flex items-center min-h-[44px] gap-2 border rounded-2xl px-2 transition-all duration-200",
             isRecording || compressedAudioFile
-              ? "bg-slate-50 border-sky-200 dark:bg-slate-900/50 dark:border-sky-900/50" // Voice Active Style
+              ? "bg-slate-50 border-sky-200 dark:bg-slate-900/50 dark:border-sky-900/50"
               : "bg-slate-50 border-slate-200 focus-within:bg-white focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100 dark:bg-slate-950 dark:border-slate-800 dark:focus-within:bg-slate-900 dark:focus-within:border-sky-500 dark:focus-within:ring-sky-900/30",
           )}
         >
           {isRecording ? (
-            // Recording State UI
             <div className="flex flex-1 items-center justify-between px-2 w-full">
               <div className="flex items-center gap-2 text-red-500 animate-pulse">
                 <div className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
@@ -505,7 +666,7 @@ export default function InputBar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={stopRecording}
+                  onClick={stopRecording} // 👈 স্টপ করলে প্রিভিউ দেখাবে
                   className="h-8 w-8 text-sky-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/50 rounded-full"
                 >
                   <Square className="h-4 w-4 fill-current" />
@@ -513,7 +674,6 @@ export default function InputBar() {
               </div>
             </div>
           ) : compressedAudioFile ? (
-            // Recorded Voice Preview UI
             <div className="flex flex-1 items-center gap-3 px-2 w-full">
               <audio
                 controls
@@ -531,12 +691,12 @@ export default function InputBar() {
               </Button>
             </div>
           ) : (
-            // Normal Text Input State
+            // 🟢 সাধারণ টেক্সট ইনপুট
             <>
               <input
                 ref={inputRef}
-                value={msgInput}
-                onChange={(e) => handleTyping(e.target.value)}
+                value={localInput}
+                onChange={(e) => handleLocalChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   selectedMedias.length > 0 || uploadingMedias.length > 0
@@ -557,9 +717,8 @@ export default function InputBar() {
           )}
         </div>
 
-        {/* 🔴 Dynamic Send / Record Button */}
+        {/* Send / Mic button */}
         {!hasContent && !isRecording && !compressedAudioFile ? (
-          // Microphone Button (When Input is empty)
           <Button
             onClick={startRecording}
             variant="ghost"
@@ -569,19 +728,18 @@ export default function InputBar() {
             <Mic className="h-5 w-5 text-slate-500" />
           </Button>
         ) : (
-          // Send Button (When text/media/voice is present)
           <Button
             onClick={onSendMessage}
-            disabled={(!hasContent && !isRecording) || isAnyUploading}
+            disabled={(!hasContent && !isRecording) || isUploading}
             size="icon"
             className={cn(
               "relative h-11 w-11 rounded-2xl shrink-0 transition-all duration-200 shadow-sm overflow-hidden",
-              isRecording ? "hidden" : "flex", // Hide Send button while actively recording
+              isRecording ? "hidden" : "flex", // 👈 রেকর্ডিং অবস্থায় সেন্ড বাটন হাইড থাকবে
               "bg-sky-500 hover:bg-sky-600 text-white dark:bg-sky-600 dark:hover:bg-sky-500",
               "disabled:opacity-80 disabled:cursor-not-allowed",
             )}
           >
-            {isAnyUploading ? (
+            {isUploading ? (
               <Loader2 className="relative h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
@@ -610,5 +768,3 @@ export default function InputBar() {
     </div>
   );
 }
-
-const MAX_FILES = 5;

@@ -46,7 +46,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+//  Global animation styles
+const bubbleAnimStyles = `
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)   scale(1);    }
+  }
+  @keyframes voiceBar {
+    0%, 100% { transform: scaleY(0.4); }
+    50%       { transform: scaleY(1);   }
+  }
+  .bubble-enter { animation: bubbleIn 0.22s cubic-bezier(0.34,1.2,0.64,1) both; }
+`;
+
+//  helpers
 
 const sizeLabel = (bytes: number) => {
   if (!bytes) return "";
@@ -71,7 +84,7 @@ const safeStr = (val: unknown): string => {
   return "";
 };
 
-// ─── FileIcon ────────────────────────────────────────────────────────────────
+//  FileIcon
 
 export const FileIcon = ({
   mimeType,
@@ -82,11 +95,11 @@ export const FileIcon = ({
 }) => {
   const mime = mimeType?.toLowerCase() || "";
   if (mime.startsWith("image/"))
-    return <FileImage className={cn("text-purple-400", className)} />;
+    return <FileImage className={cn("text-violet-400", className)} />;
   if (mime.startsWith("video/"))
     return <FileVideo className={cn("text-pink-400", className)} />;
   if (mime.startsWith("audio/"))
-    return <Music className={cn("text-orange-400", className)} />;
+    return <Music className={cn("text-amber-400", className)} />;
   if (
     mime.includes("javascript") ||
     mime.includes("typescript") ||
@@ -96,44 +109,26 @@ export const FileIcon = ({
     mime.includes("xml") ||
     mime.includes("sql")
   )
-    return (
-      <FileCode
-        className={cn("text-yellow-400 dark:text-yellow-300", className)}
-      />
-    );
+    return <FileCode className={cn("text-emerald-400", className)} />;
   if (mime.includes("pdf"))
-    return <FileText className={cn("text-red-400", className)} />;
+    return <FileText className={cn("text-rose-400", className)} />;
   if (
     mime.includes("zip") ||
     mime.includes("rar") ||
     mime.includes("tar") ||
     mime.includes("7z")
   )
-    return (
-      <FileArchive
-        className={cn("text-amber-500 dark:text-amber-400", className)}
-      />
-    );
+    return <FileArchive className={cn("text-orange-400", className)} />;
   if (mime.includes("word") || mime.includes("document"))
-    return (
-      <FileText className={cn("text-blue-400 dark:text-blue-300", className)} />
-    );
+    return <FileText className={cn("text-blue-400", className)} />;
   if (mime.includes("sheet") || mime.includes("excel") || mime.includes("csv"))
-    return (
-      <FileSpreadsheet
-        className={cn("text-green-500 dark:text-green-400", className)}
-      />
-    );
+    return <FileSpreadsheet className={cn("text-teal-400", className)} />;
   if (mime.startsWith("text/"))
-    return (
-      <FileText
-        className={cn("text-slate-400 dark:text-slate-300", className)}
-      />
-    );
+    return <FileText className={cn("text-slate-400", className)} />;
   return <File className={cn("text-slate-400", className)} />;
 };
 
-// ─── Download button ─────────────────────────────────────────────────────────
+//  Download button
 type DlState = "idle" | "downloading" | "done" | "error";
 
 function useDownload() {
@@ -223,10 +218,10 @@ function DownloadBtn({
             className={cn(
               "relative h-8 w-8 rounded-full flex items-center justify-center shrink-0 transition-all overflow-hidden",
               isMine
-                ? "hover:bg-white/20"
-                : "hover:bg-slate-200 dark:hover:bg-slate-700",
-              state === "done" && "bg-emerald-500/20",
-              state === "error" && "bg-red-500/20",
+                ? "bg-white/10 hover:bg-white/25 text-white/80 hover:text-white"
+                : "bg-slate-200/70 hover:bg-slate-300 dark:bg-slate-700/70 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-300",
+              state === "done" && "bg-emerald-500/20 text-emerald-400",
+              state === "error" && "bg-red-500/20 text-red-400",
             )}
           >
             {state === "downloading" && (
@@ -259,7 +254,7 @@ function DownloadBtn({
               </svg>
             )}
             <span className="relative">
-              {state === "idle" && <Download className="h-4 w-4" />}
+              {state === "idle" && <Download className="h-3.5 w-3.5" />}
               {state === "downloading" && (
                 <span className="text-[9px] font-bold tabular-nums">
                   {progress}%
@@ -280,7 +275,7 @@ function DownloadBtn({
   );
 }
 
-// ─── Voice Message Player ────────────────────────────────────────────────────
+//  Voice Message Player
 
 function VoicePlayer({
   url,
@@ -297,12 +292,12 @@ function VoicePlayer({
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const bars = 28;
+  const bars = 30;
 
   const [heights] = useState(() =>
     Array.from({ length: bars }, (_, i) => {
       const seed = (url.charCodeAt(i % url.length) * (i + 1)) % 100;
-      return 20 + (seed % 60);
+      return 18 + (seed % 64);
     }),
   );
 
@@ -367,20 +362,22 @@ function VoicePlayer({
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5 px-3 py-2.5 w-[240px]",
+        "flex items-center gap-3 px-3 py-3 w-[256px]",
         isMine
-          ? "bg-sky-600"
-          : "bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700",
+          ? "bg-gradient-to-br from-sky-500 to-blue-600"
+          : "bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80",
       )}
     >
       <audio ref={audioRef} src={url} preload="metadata" />
+
+      {/* Play/Pause button */}
       <button
         onClick={togglePlay}
         className={cn(
-          "h-9 w-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
+          "h-10 w-10 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 shadow-md",
           isMine
-            ? "bg-white/20 hover:bg-white/30 text-white"
-            : "bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200",
+            ? "bg-white/20 hover:bg-white/35 text-white ring-1 ring-white/20"
+            : "bg-gradient-to-br from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-sky-300 dark:shadow-sky-900",
         )}
       >
         {playing ? (
@@ -389,7 +386,9 @@ function VoicePlayer({
           <Play className="h-4 w-4 fill-current translate-x-[1px]" />
         )}
       </button>
-      <div className="flex flex-col gap-1 flex-1 min-w-0">
+
+      <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+        {/* Waveform bars */}
         <div
           className="flex items-center gap-[2px] h-7 cursor-pointer"
           onClick={seek}
@@ -398,46 +397,58 @@ function VoicePlayer({
           {heights.map((h, i) => {
             const barProgress = i / bars;
             const active = barProgress <= progress;
+            const isNearPlayhead =
+              Math.abs(barProgress - progress) < 0.04 && playing;
             return (
               <span
                 key={i}
-                style={{ height: `${h}%` }}
+                style={{
+                  height: `${h}%`,
+                  animation:
+                    playing && active && isNearPlayhead
+                      ? `voiceBar ${0.5 + (i % 3) * 0.15}s ease-in-out infinite`
+                      : undefined,
+                }}
                 className={cn(
-                  "inline-block w-[3px] rounded-full flex-shrink-0 transition-colors duration-150",
+                  "inline-block w-[2.5px] rounded-full flex-shrink-0 transition-colors duration-150",
                   isMine
                     ? active
                       ? "bg-white"
-                      : "bg-white/35"
+                      : "bg-white/30"
                     : active
-                      ? "bg-sky-500 dark:bg-sky-400"
-                      : "bg-slate-300 dark:bg-slate-600",
+                      ? "bg-gradient-to-t from-blue-600 to-sky-400"
+                      : "bg-slate-200 dark:bg-slate-600",
                 )}
               />
             );
           })}
         </div>
+
+        {/* Time + mic icon */}
         <div className="flex items-center justify-between">
           <span
             className={cn(
-              "text-[10px] font-medium tabular-nums",
-              isMine ? "text-white/60" : "text-slate-400",
+              "text-[10px] font-semibold tabular-nums tracking-wide",
+              isMine ? "text-white/65" : "text-slate-400 dark:text-slate-500",
             )}
           >
             {displayTime}
           </span>
-          <Mic
+          <div
             className={cn(
-              "h-2.5 w-2.5",
-              isMine ? "text-white/40" : "text-slate-400",
+              "flex items-center gap-1",
+              isMine ? "text-white/40" : "text-slate-300 dark:text-slate-600",
             )}
-          />
+          >
+            <Mic className="h-2.5 w-2.5" />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Reply Preview ───────────────────────────────────────────────────────────
+//  Reply Preview
 
 function ReplyPreview({
   replyTo,
@@ -458,7 +469,6 @@ function ReplyPreview({
     (a: any) => a.type === "file" || a.type === "audio",
   );
 
-  // encrypted object হলে "" — [object Object] না
   const replyContent = safeStr(replyTo.content);
   const hasText = !!replyContent.trim();
   const senderLabel = replyTo.senderId === myId ? "You" : "Message";
@@ -467,16 +477,16 @@ function ReplyPreview({
     <div
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 mb-2 px-2 py-1.5 rounded-lg text-[11px] border-l-2 cursor-pointer hover:opacity-80 overflow-hidden",
+        "flex items-center gap-2 mb-2 px-2.5 py-2 rounded-xl text-[11px] cursor-pointer hover:opacity-75 transition-opacity overflow-hidden",
         isMine
-          ? "border-sky-300 bg-sky-400/30"
-          : "border-slate-300 bg-slate-50 dark:bg-slate-900/50 dark:border-slate-600",
+          ? "bg-white/10 border-l-2 border-white/60"
+          : "bg-slate-50 dark:bg-slate-900/60 border-l-2 border-sky-400 dark:border-sky-500",
       )}
     >
-      <CornerUpRight className="h-3 w-3 shrink-0 opacity-60" />
+      <CornerUpRight className="h-3 w-3 shrink-0 opacity-50" />
 
       {imgs.length > 0 && (
-        <div className="relative w-9 h-9 rounded overflow-hidden shrink-0">
+        <div className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/20">
           <img
             src={imgs[0].url}
             alt=""
@@ -498,7 +508,7 @@ function ReplyPreview({
                 .replace(/\.(mp4|webm|mov|mkv|avi)$/i, ".jpg")
             : null;
           return (
-            <div className="relative w-9 h-9 rounded overflow-hidden shrink-0 bg-slate-800">
+            <div className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-slate-800">
               {thumb ? (
                 <img
                   src={thumb}
@@ -520,10 +530,15 @@ function ReplyPreview({
         })()}
 
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="font-semibold opacity-90 text-[10px] mb-0.5">
+        <span
+          className={cn(
+            "font-bold text-[10px] mb-0.5 uppercase tracking-wider",
+            isMine ? "text-white/70" : "text-sky-500 dark:text-sky-400",
+          )}
+        >
           {senderLabel}
         </span>
-        <span className="truncate opacity-70 flex items-center gap-1">
+        <span className="truncate opacity-60 flex items-center gap-1">
           {imgs.length > 0 && !hasText && (
             <>
               <ImageIcon className="h-3 w-3 shrink-0" /> Photo
@@ -562,23 +577,23 @@ function ReplyPreview({
   );
 }
 
-// ─── Status icon ─────────────────────────────────────────────────────────────
+//  Status icon
 
 const StatusIcon = ({ status }: { status: MessageStatus }) => {
   if (status === MessageStatus.SENDING)
-    return <Clock className="h-3 w-3 text-white/60" />;
+    return <Clock className="h-3 w-3 text-white/50 animate-pulse" />;
   if (status === MessageStatus.FAILED)
     return <AlertCircle className="h-3 w-3 text-red-300" />;
   if (status === MessageStatus.SENT)
-    return <Check className="h-3 w-3 text-white/60" />;
+    return <Check className="h-3 w-3 text-white/50" />;
   if (status === MessageStatus.DELIVERED)
     return <CheckCheck className="h-3 w-3 text-white/60" />;
   if (status === MessageStatus.READ)
-    return <CheckCheck className="h-3 w-3 text-sky-300" />;
+    return <CheckCheck className="h-3 w-3 text-sky-200" />;
   return null;
 };
 
-// ─── Image grid ──────────────────────────────────────────────────────────────
+//  Image grid
 
 const MessageImageGrid = ({
   mediaAtts,
@@ -610,14 +625,14 @@ const MessageImageGrid = ({
     );
     return (
       <div
-        className="relative cursor-pointer"
+        className="relative cursor-pointer overflow-hidden group/img"
         onClick={() => onOpen(absoluteIndex >= 0 ? absoluteIndex : 0)}
       >
         <img
           src={imgs[0].url}
           alt={imgs[0].name ?? "image"}
           className={cn(
-            "block w-full max-w-[280px] object-cover",
+            "block w-full max-w-[288px] object-cover transition-transform duration-300 group-hover/img:scale-[1.02]",
             hasCaption
               ? "rounded-t-2xl"
               : isMine
@@ -627,31 +642,35 @@ const MessageImageGrid = ({
           )}
           style={{ maxHeight: "300px" }}
         />
+        {/* Hover shimmer */}
+        {!isTemp && (
+          <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/10 transition-colors duration-200 rounded-inherit" />
+        )}
         {isTemp && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5">
             <div className="w-11 h-11 rounded-full border-[3px] border-white/30 border-t-white animate-spin" />
-            <div className="w-4/5 h-[3px] bg-white/30 rounded-full overflow-hidden">
+            <div className="w-4/5 h-[3px] bg-white/20 rounded-full overflow-hidden">
               <div
                 className="h-full bg-white rounded-full transition-[width] duration-300 ease-out"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <span className="text-white text-[11px] font-medium">
+            <span className="text-white text-[11px] font-medium tracking-wide">
               {progress}%
             </span>
           </div>
         )}
         {!hasCaption && !isTemp && (
-          <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/35 rounded-full px-1.5 py-0.5">
-            <span className="text-[10px] text-white/90">
+          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+            <span className="text-[10px] text-white/90 font-medium">
               {createdAt ? timeFormatFn(createdAt, timeFormat) : ""}
             </span>
             {isMine && status && <StatusIcon status={status} />}
           </div>
         )}
         {!hasCaption && isTemp && (
-          <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-black/35 rounded-full px-1.5 py-0.5">
-            <span className="text-[10px] text-white/80">Sending...</span>
+          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+            <span className="text-[10px] text-white/80">Sending…</span>
           </div>
         )}
       </div>
@@ -662,7 +681,7 @@ const MessageImageGrid = ({
   const extra = imgs.length - 4;
 
   return (
-    <div className="grid gap-0.5 w-[240px] grid-cols-2">
+    <div className="grid gap-0.5 w-[248px] grid-cols-2">
       {visible.map((img: any, i: number) => {
         const isLast = i === 3 && extra > 0;
         const absoluteIndex = mediaAtts.findIndex(
@@ -672,22 +691,26 @@ const MessageImageGrid = ({
           <div
             key={i}
             className={cn(
-              "relative overflow-hidden cursor-pointer",
-              imgs.length === 2 ? "h-[140px]" : "h-[110px]",
+              "relative overflow-hidden cursor-pointer group/cell",
+              imgs.length === 2 ? "h-[140px]" : "h-[112px]",
               i === 0 && "rounded-tl-2xl",
               i === 1 && "rounded-tr-2xl",
               i === 2 && imgs.length <= 3 && "rounded-bl-sm",
               i === 3 && "rounded-br-sm",
               imgs.length === 3 &&
                 i === 2 &&
-                "col-span-2 rounded-b-xl h-[110px]",
+                "col-span-2 rounded-b-xl h-[112px]",
             )}
             onClick={() => onOpen(absoluteIndex >= 0 ? absoluteIndex : 0)}
           >
-            <img src={img.url} alt="" className="w-full h-full object-cover" />
+            <img
+              src={img.url}
+              alt=""
+              className="w-full h-full object-cover transition-transform duration-300 group-hover/cell:scale-105"
+            />
             {isLast && (
-              <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                <span className="text-white text-2xl font-medium">
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center">
+                <span className="text-white text-2xl font-semibold">
                   +{extra + 1}
                 </span>
               </div>
@@ -699,7 +722,7 @@ const MessageImageGrid = ({
   );
 };
 
-// ─── MessageBubble (main export) ─────────────────────────────────────────────
+//  MessageBubble (main export)
 
 export default function MessageBubble({ message }: { message: Message }) {
   const { myId } = useAuthStore();
@@ -716,11 +739,9 @@ export default function MessageBubble({ message }: { message: Message }) {
   const attachments: any[] = (message as any).attachments ?? [];
   const uploadProgress = (message as any).uploadProgress ?? 0;
 
-  // ── safe string — encrypted object হলে "" হবে, [object Object] না ──────────
   const contentStr = safeStr(message.content);
   const hasCaption = !!contentStr.trim();
 
-  // ── Attachment buckets ───────────────────────────────────────────────────────
   const mediaAtts = attachments.filter(
     (a) => a.type === "image" || a.type === "video",
   );
@@ -733,7 +754,7 @@ export default function MessageBubble({ message }: { message: Message }) {
   const hasVoice = voiceAtts.length > 0;
   const hasFiles = fileAtts.length > 0;
 
-  // ── Radii ────────────────────────────────────────────────────────────────────
+  //  Bubble border radius based on bubbleStyle
   const textRadius =
     bubbleStyle === "modern"
       ? isMine
@@ -747,7 +768,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     ? "rounded-2xl rounded-br-sm overflow-hidden"
     : "rounded-2xl rounded-bl-sm overflow-hidden";
 
-  // ── Scroll to replied message ─────────────────────────────────────────────────
+  //  Scroll to replied message
   const scrollToReply = () => {
     if (!message.replyTo?._id) return;
     const el = document.getElementById(`message-${message.replyTo._id}`);
@@ -762,12 +783,16 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
 
-  // ── Media / attachment bubble ─────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // Media / attachment bubble
+  // ════════════════════════════════════════════════════════════════════════════
   if ((hasMedia || hasVoice || hasFiles) && !isDeleted) {
     const videoAtts = mediaAtts.filter((a) => a.type === "video");
 
     return (
       <>
+        <style>{bubbleAnimStyles}</style>
+
         {viewerOpen && (
           <MediaViewer
             items={mediaAtts.map((a) => ({
@@ -790,7 +815,7 @@ export default function MessageBubble({ message }: { message: Message }) {
         <div
           id={`message-${message._id}`}
           className={cn(
-            "flex items-end gap-2 group",
+            "flex items-end gap-2 group bubble-enter",
             compactMode ? "mb-0.5" : "mb-2",
             isMine ? "ml-auto flex-row-reverse" : "mr-auto",
             "max-w-[75%]",
@@ -798,9 +823,15 @@ export default function MessageBubble({ message }: { message: Message }) {
         >
           <div
             onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
-            className={cn("relative", mediaRadius)}
+            className={cn(
+              "relative shadow-lg",
+              mediaRadius,
+              isMine
+                ? "shadow-sky-500/20"
+                : "shadow-slate-200/60 dark:shadow-slate-900/40",
+            )}
           >
-            {/* Context menu button */}
+            {/* Context menu trigger */}
             {!isTemp && (
               <button
                 onClick={(e) => {
@@ -808,9 +839,15 @@ export default function MessageBubble({ message }: { message: Message }) {
                   e.stopPropagation();
                   openCtx(e, message, isMine);
                 }}
-                className="absolute top-2 right-2 z-20 p-0.5 rounded-full bg-black/30 text-white hover:bg-black/50 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200"
+                className={cn(
+                  "absolute top-2 right-2 z-20 p-1 rounded-full transition-all duration-200",
+                  "opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                  isMine
+                    ? "bg-black/20 text-white hover:bg-black/40"
+                    : "bg-black/10 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:bg-black/20",
+                )}
               >
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-3.5 w-3.5" />
               </button>
             )}
 
@@ -818,11 +855,10 @@ export default function MessageBubble({ message }: { message: Message }) {
             {message.replyTo && (
               <div
                 className={cn(
-                  "px-2 pt-2",
-                  isMine ? "bg-sky-600" : "bg-slate-100 dark:bg-slate-800",
+                  "px-2.5 pt-2.5",
                   isMine
-                    ? "rounded-t-2xl rounded-tr-2xl"
-                    : "rounded-t-2xl rounded-tl-2xl",
+                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-t-2xl"
+                    : "bg-white dark:bg-slate-800 rounded-t-2xl border-x border-t border-slate-200/80 dark:border-slate-700/80",
                 )}
               >
                 <ReplyPreview
@@ -883,46 +919,56 @@ export default function MessageBubble({ message }: { message: Message }) {
               />
             ))}
 
-            {/* Generic file / audio */}
+            {/* Generic file / audio  enhanced card */}
             {fileAtts.map((f: any, i: number) => (
               <div
                 key={i}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 w-[240px]",
+                  "flex items-center gap-3 px-3 py-3 w-[256px]",
                   isMine
-                    ? "bg-sky-600"
-                    : "bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700",
+                    ? "bg-gradient-to-br from-sky-500 to-blue-600"
+                    : "bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80",
                 )}
               >
+                {/* File icon box */}
                 <div
                   className={cn(
-                    "h-9 w-9 rounded-xl flex items-center justify-center shrink-0",
-                    isMine ? "bg-white/15" : "bg-slate-200 dark:bg-slate-700",
+                    "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
+                    isMine
+                      ? "bg-white/15 ring-1 ring-white/20"
+                      : "bg-slate-100 dark:bg-slate-700/80 ring-1 ring-slate-200 dark:ring-slate-600",
                   )}
                 >
-                  <FileIcon mimeType={f.mimeType} className="h-4 w-4" />
+                  <FileIcon mimeType={f.mimeType} className="h-5 w-5" />
                 </div>
+
+                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p
                     className={cn(
-                      "text-xs font-medium truncate",
+                      "text-xs font-semibold truncate",
                       isMine
                         ? "text-white"
-                        : "text-slate-700 dark:text-slate-200",
+                        : "text-slate-700 dark:text-slate-100",
                     )}
                   >
                     {f.name}
                   </p>
                   <p
                     className={cn(
-                      "text-[10px]",
-                      isMine ? "text-white/60" : "text-slate-400",
+                      "text-[10px] mt-0.5 font-medium",
+                      isMine
+                        ? "text-white/55"
+                        : "text-slate-400 dark:text-slate-500",
                     )}
                   >
-                    {sizeLabel(f.size)} ·{" "}
-                    {f.mimeType?.split("/")[1]?.toUpperCase()}
+                    {sizeLabel(f.size)}
+                    {f.mimeType && (
+                      <> · {f.mimeType.split("/")[1]?.toUpperCase()}</>
+                    )}
                   </p>
                 </div>
+
                 <DownloadBtn url={f.url} name={f.name} isMine={isMine} />
               </div>
             ))}
@@ -931,18 +977,18 @@ export default function MessageBubble({ message }: { message: Message }) {
             {hasCaption && (
               <div
                 className={cn(
-                  "flex items-end justify-between gap-2 px-3 py-2",
+                  "flex items-end justify-between gap-2 px-3 py-2.5",
                   isMine
-                    ? "bg-sky-600 rounded-b-2xl rounded-br-sm"
-                    : "bg-slate-100 dark:bg-slate-800 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-100 dark:border-slate-700",
+                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
+                    : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
                 )}
               >
                 <span
                   className={cn(
-                    "text-sm flex-1",
+                    "text-sm flex-1 leading-relaxed",
                     isMine
                       ? "text-white"
-                      : "text-slate-700 dark:text-slate-200",
+                      : "text-slate-700 dark:text-slate-100",
                   )}
                 >
                   {contentStr}
@@ -950,12 +996,12 @@ export default function MessageBubble({ message }: { message: Message }) {
                 <div className="flex items-center gap-1 shrink-0">
                   <span
                     className={cn(
-                      "text-[10px]",
-                      isMine ? "text-white/60" : "text-slate-400",
+                      "text-[10px] font-medium",
+                      isMine ? "text-white/55" : "text-slate-400",
                     )}
                   >
                     {isTemp
-                      ? "Sending..."
+                      ? "Sending…"
                       : timeFormatFn(message.createdAt!, timeFormat)}
                   </span>
                   {isMine && message.status && !isTemp && (
@@ -971,18 +1017,18 @@ export default function MessageBubble({ message }: { message: Message }) {
                 className={cn(
                   "flex justify-end items-center gap-1 px-3 py-1.5",
                   isMine
-                    ? "bg-sky-600 rounded-b-2xl rounded-br-sm"
-                    : "bg-slate-100 dark:bg-slate-800 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200 dark:border-slate-700",
+                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
+                    : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
                 )}
               >
                 <span
                   className={cn(
-                    "text-[10px]",
-                    isMine ? "text-white/60" : "text-slate-400",
+                    "text-[10px] font-medium",
+                    isMine ? "text-white/55" : "text-slate-400",
                   )}
                 >
                   {isTemp
-                    ? "Sending..."
+                    ? "Sending…"
                     : message.createdAt &&
                       timeFormatFn(message.createdAt, timeFormat)}
                 </span>
@@ -997,105 +1043,133 @@ export default function MessageBubble({ message }: { message: Message }) {
     );
   }
 
-  // ── Text bubble ───────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // Text bubble
+  // ════════════════════════════════════════════════════════════════════════════
   return (
-    <div
-      id={`message-${message._id}`}
-      className={cn(
-        "flex items-end gap-2 group transition-all duration-200",
-        compactMode ? "mb-0.5" : "mb-3",
-        isMine ? "ml-auto flex-row-reverse" : "mr-auto",
-        "max-w-[80%]",
-      )}
-    >
+    <>
+      <style>{bubbleAnimStyles}</style>
       <div
-        onContextMenu={(e) => !isDeleted && openCtx(e, message, isMine)}
+        id={`message-${message._id}`}
         className={cn(
-          "relative cursor-context-menu select-text transition-all duration-150 group-hover:shadow-md leading-relaxed",
-          fontStyle,
-          textSize,
-          textRadius,
-          compactMode ? "px-2.5 py-1" : "px-4 py-2.5",
-          isMine
-            ? "bg-sky-600 text-white dark:bg-sky-600"
-            : "bg-slate-100 text-slate-700 border border-slate-100 shadow-sm dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700",
-          isDeleted && "opacity-70 italic",
+          "flex items-end gap-2 group bubble-enter transition-all duration-200",
+          compactMode ? "mb-0.5" : "mb-3",
+          isMine ? "ml-auto flex-row-reverse" : "mr-auto",
+          "max-w-[80%]",
         )}
       >
-        {!isDeleted && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              openCtx(e, message, isMine);
-            }}
-            className={cn(
-              "absolute top-1 right-1 p-0.5 rounded-full z-10 transition-all duration-200",
-              "opacity-100 md:opacity-0 md:group-hover:opacity-100",
-              isMine
-                ? "bg-sky-700/50 text-white hover:bg-sky-800/80"
-                : "bg-slate-200/80 text-slate-500 hover:bg-slate-300 dark:bg-slate-700/80",
-            )}
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        )}
-
-        {message.replyTo && !isDeleted && (
-          <ReplyPreview
-            replyTo={message.replyTo}
-            myId={myId}
-            isMine={isMine}
-            onClick={scrollToReply}
-          />
-        )}
-
-        <div className="flex flex-col gap-0.5 pr-2">
-          {isDeleted ? (
-            <span className="flex items-center gap-1.5 text-xs opacity-80">
-              <Ban className="h-3.5 w-3.5 shrink-0" />
-              This message was deleted
-            </span>
-          ) : (
-            <>
-              <LinkPreviewCard content={contentStr} isMine={isMine} />
-              <span className="whitespace-pre-wrap break-words mt-1">
-                {contentStr}
-              </span>
-            </>
+        <div
+          onContextMenu={(e) => !isDeleted && openCtx(e, message, isMine)}
+          className={cn(
+            "relative cursor-context-menu select-text leading-relaxed",
+            "transition-all duration-150",
+            "shadow-md",
+            fontStyle,
+            textSize,
+            textRadius,
+            compactMode ? "px-3 py-1.5" : "px-4 py-2.5",
+            isMine
+              ? [
+                  "bg-gradient-to-br from-sky-500 to-blue-600 text-white",
+                  "shadow-sky-500/25",
+                  // subtle inner top-highlight
+                  "ring-1 ring-white/10",
+                ].join(" ")
+              : [
+                  "bg-white text-slate-700",
+                  "border border-slate-200/80",
+                  "shadow-slate-200/60",
+                  "dark:bg-slate-800/90 dark:text-slate-100 dark:border-slate-700/80 dark:shadow-slate-900/40",
+                ].join(" "),
+            isDeleted && "opacity-60 italic",
+            // hover lift
+            "hover:shadow-lg hover:-translate-y-[1px]",
           )}
-
-          <div
-            className={cn(
-              "flex items-center justify-end gap-1 select-none",
-              compactMode ? "mt-0" : "mt-1",
-            )}
-          >
-            {message.isImportant && (
-              <Star className="h-2.5 w-2.5 fill-current text-amber-400" />
-            )}
-            {message.is_edited && !isDeleted && (
-              <span className="text-[9px] opacity-50 uppercase font-bold">
-                edited
-              </span>
-            )}
-            <span
+        >
+          {/* Context menu trigger */}
+          {!isDeleted && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openCtx(e, message, isMine);
+              }}
               className={cn(
-                "text-[10px] font-medium",
-                isMine ? "text-white/60" : "text-slate-400",
+                "absolute top-1.5 right-1.5 p-0.5 rounded-full z-10 transition-all duration-200",
+                "opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                isMine
+                  ? "bg-white/10 text-white hover:bg-white/25"
+                  : "bg-slate-100 dark:bg-slate-700/80 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600",
               )}
             >
-              {isTemp
-                ? "Sending..."
-                : message.createdAt &&
-                  timeFormatFn(message.createdAt, timeFormat)}
-            </span>
-            {isMine && message.status && !isTemp && (
-              <StatusIcon status={message.status} />
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {message.replyTo && !isDeleted && (
+            <ReplyPreview
+              replyTo={message.replyTo}
+              myId={myId}
+              isMine={isMine}
+              onClick={scrollToReply}
+            />
+          )}
+
+          <div className="flex flex-col gap-0.5 pr-2">
+            {isDeleted ? (
+              <span className="flex items-center gap-1.5 text-xs opacity-70">
+                <Ban className="h-3.5 w-3.5 shrink-0" />
+                This message was deleted
+              </span>
+            ) : (
+              <>
+                <LinkPreviewCard content={contentStr} isMine={isMine} />
+                <span className="whitespace-pre-wrap break-words mt-0.5 leading-[1.55]">
+                  {contentStr}
+                </span>
+              </>
             )}
+
+            {/* Meta row */}
+            <div
+              className={cn(
+                "flex items-center justify-end gap-1 select-none",
+                compactMode ? "mt-0" : "mt-1",
+              )}
+            >
+              {message.isImportant && (
+                <Star className="h-2.5 w-2.5 fill-current text-amber-300" />
+              )}
+              {message.is_edited && !isDeleted && (
+                <span
+                  className={cn(
+                    "text-[9px] uppercase font-bold tracking-widest",
+                    isMine ? "text-white/40" : "text-slate-400",
+                  )}
+                >
+                  edited
+                </span>
+              )}
+              <span
+                className={cn(
+                  "text-[10px] font-medium tabular-nums",
+                  isMine
+                    ? "text-white/55"
+                    : "text-slate-400 dark:text-slate-500",
+                )}
+              >
+                {isTemp
+                  ? "Sending…"
+                  : message.createdAt &&
+                    timeFormatFn(message.createdAt, timeFormat)}
+              </span>
+              {isMine && message.status && !isTemp && (
+                <StatusIcon status={message.status} />
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

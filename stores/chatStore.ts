@@ -8,7 +8,7 @@ import {
   MessageStatus,
   ContextMenuState,
 } from "@/types/chat";
-import { SOCKET_URL} from "@/lib/chat-helpers";
+import { SOCKET_URL } from "@/lib/chat-helpers";
 import { getQueryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
@@ -51,6 +51,20 @@ const safeDecryptReplyTo = async (
     publicKey,
   );
   return { ...replyTo, content: decryptedContent };
+};
+
+const getAttachmentPreview = (msg: any): string => {
+  if (msg.content && typeof msg.content === "string" && msg.content.trim()) {
+    return msg.content;
+  }
+  const atts: any[] = msg.attachments ?? [];
+  if (atts.some((a: any) => a.type === "VoiceMessage"))
+    return "🎤 Voice message";
+  if (atts.some((a: any) => a.type === "image")) return "📷 Photo";
+  if (atts.some((a: any) => a.type === "video")) return "🎥 Video";
+  if (atts.some((a: any) => a.type === "audio")) return "🎵 Audio";
+  if (atts.some((a: any) => a.type === "file")) return "📎 File";
+  return "";
 };
 
 // ==========================================
@@ -290,8 +304,29 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   addOptimisticMessage: (msg) => {
     const chatId = get().activeContact?.customChatId;
     const myId = useAuthStore.getState().myId;
+    const { activeContact } = get();
     const tempMsg = { ...msg, senderId: myId, status: MessageStatus.SENDING };
-    set((s) => ({ messages: [...s.messages, tempMsg] }));
+
+    set((s) => ({
+      messages: [...s.messages, tempMsg],
+      contacts: s.contacts
+        .map((c) =>
+          c._id === activeContact?._id
+            ? {
+                ...c,
+                lastMessage: {
+                  content: getAttachmentPreview(tempMsg) || "Sending…",
+                  createdAt: tempMsg.createdAt || new Date().toISOString(),
+                },
+              }
+            : c,
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.lastMessage?.createdAt || 0).getTime() -
+            new Date(a.lastMessage?.createdAt || 0).getTime(),
+        ),
+    }));
     updateMessagesCache(chatId, (old) => [...old, tempMsg]);
   },
 
@@ -299,6 +334,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     const chatId = get().activeContact?.customChatId;
     const myId = useAuthStore.getState().myId;
     const { activeContact } = get();
+
     const realMsg = {
       _id: realData.messageId,
       senderId: myId,
@@ -308,12 +344,18 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       status: MessageStatus.SENT,
       isTemp: false,
     };
+
+    // messages এ replace করো
     set((s) => ({
       messages: s.messages.map((m) => (m._id === tempId ? realMsg : m)),
     }));
+
+    // React Query cache এও replace করো
     updateMessagesCache(chatId, (old) =>
       old.map((m) => (m._id === tempId ? realMsg : m)),
     );
+
+    // contacts lastMessage update — getAttachmentPreview দিয়ে সব type handle
     set((s) => ({
       contacts: s.contacts
         .map((c) =>
@@ -321,7 +363,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             ? {
                 ...c,
                 lastMessage: {
-                  content: realMsg.content || "📷 Image",
+                  content: getAttachmentPreview(realMsg),
                   createdAt: realMsg.createdAt,
                 },
               }
@@ -817,15 +859,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   },
 
   handleTyping: (value: string) => {
-    const { activeContact, socket, _typingTimeout } = get();
     set({ msgInput: value });
-    if (!activeContact) return;
-    socket?.emit("typing", { receiverId: activeContact._id });
-    clearTimeout(_typingTimeout);
-    const t = setTimeout(() => {
-      socket?.emit("stop_typing", { receiverId: activeContact._id });
-    }, 2000);
-    set({ _typingTimeout: t });
   },
 
   handleAction: (action: string, msg: Message) => {

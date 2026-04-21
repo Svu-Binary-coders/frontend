@@ -500,7 +500,12 @@ export default function Profile() {
 
           <div className="text-center md:text-left space-y-1.5">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-              {myDetails?.userName ? myDetails.userName.split(' ').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : "Unnamed User"}
+              {myDetails?.userName
+                ? myDetails.userName
+                    .split(" ")
+                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(" ")
+                : "Unnamed User"}
             </h1>
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-2 text-sm text-slate-500">
               <span className="flex items-center gap-1.5">
@@ -534,7 +539,7 @@ export default function Profile() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => gopath("?page=settings&subPage=account")}
+                onClick={() => gopath("?page=settings&subPage=devices")}
                 className="mt-4 "
               >
                 View Login Devices

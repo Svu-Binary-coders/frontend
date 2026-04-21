@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Message, MessageStatus } from "@/types/chat";
 import { useChatStore } from "@/stores/chatStore";
 import api from "@/lib/axios";
@@ -12,11 +12,7 @@ interface RawMessage {
   senderId: string;
   messageStatus: MessageStatus;
   content: string;
-  replyTo?: {
-    _id: string;
-    content: string;
-    senderId: string;
-  } | null;
+  replyTo?: { _id: string; content: string; senderId: string } | null;
   [key: string]: unknown;
 }
 
@@ -35,19 +31,24 @@ const deduplicateMessages = (messages: Message[]): Message[] => {
   });
 };
 
+const sortByTime = (messages: Message[]) =>
+  messages.sort(
+    (a: any, b: any) =>
+      new Date(a.createdAt || 0).getTime() -
+      new Date(b.createdAt || 0).getTime(),
+  );
+
 const isEncrypted = (text: unknown): boolean => {
   let str = "";
   if (typeof text === "string") str = text;
   else if (text && typeof text === "object")
     str = (text as any).text || (text as any).content || "";
-
   return (
     typeof str === "string" && (str.startsWith("v1:") || str.startsWith("v4:"))
   );
 };
 
 const safeDecrypt = async (content: any, chatId: string, publicKey: string) => {
-  // যদি ডাটাবেস থেকে ভুলবশত আগে থেকেই ডিক্রিপ্টেড অবজেক্ট চলে আসে
   if (content && typeof content === "object" && "flags" in content) {
     return {
       text:
@@ -58,13 +59,10 @@ const safeDecrypt = async (content: any, chatId: string, publicKey: string) => {
       conditions: content.conditions || "NONE",
     };
   }
-
-  // যদি স্ট্রিং বা অন্য কিছু আসে, তবে সেখান থেকে শুধু স্ট্রিংটি বের করে নেওয়া
   let strContent = "";
   if (typeof content === "string") strContent = content;
   else if (content && typeof content === "object")
     strContent = content.text || content.content || "";
-
   if (!isEncrypted(strContent)) {
     return {
       text: strContent,
@@ -83,7 +81,6 @@ const safeDecrypt = async (content: any, chatId: string, publicKey: string) => {
   }
 };
 
-// safely decrypt reply content
 const safeDecryptReplyTo = async (
   replyTo: RawMessage["replyTo"] | undefined | null,
   chatId: string,
@@ -91,18 +88,28 @@ const safeDecryptReplyTo = async (
 ): Promise<Message["replyTo"]> => {
   if (!replyTo) return null;
   if (!isEncrypted(replyTo.content)) return replyTo as Message["replyTo"];
-
   const decryptedObj = await safeDecrypt(replyTo.content, chatId, publicKey);
   return { ...replyTo, content: decryptedObj.text } as Message["replyTo"];
 };
 
 // ==========================================
-// HOOK
 export const useChatHistory = (
   myId: string,
   chatId?: string,
   contactId?: string,
 ) => {
+  const socketMsgIdsRef = useRef<Set<string>>(new Set());
+  const apiLoadedRef = useRef(false);
+  const prevChatIdRef = useRef<string | undefined>(chatId);
+
+  // chat switch এ refs reset — useEffect এ করতে হবে, render body তে ref access নিষেধ
+  useEffect(() => {
+    if (prevChatIdRef.current === chatId) return;
+    prevChatIdRef.current = chatId;
+    socketMsgIdsRef.current = new Set();
+    apiLoadedRef.current = false;
+  }, [chatId]);
+
   const query = useInfiniteQuery<PageResult>({
     queryKey: ["messages", chatId],
     networkMode: "offlineFirst",
@@ -113,108 +120,98 @@ export const useChatHistory = (
         .contacts.find((c) => c._id === contactId);
       const peerPublicKey = contact?.publicKey;
 
-      //  Load offline messages first
+      //  IndexDB — background load, scroll trigger করবে না
       if (!pageParam) {
         getChatOffline(chatId ?? "")
           .then(async (offlineMessages) => {
             if (!offlineMessages?.length) return;
-
-            const recentOfflineMessages = offlineMessages.slice(-50);
-
             const decrypted = await Promise.all(
-              recentOfflineMessages.map(async (m: any) => {
-                const originalEncrypted =
+              offlineMessages.slice(-50).map(async (m: any) => {
+                const raw =
                   typeof m.content === "string"
                     ? m.content
                     : m.content?.text || m.content?.content || "";
-                const decryptedObj =
+                const dec =
                   peerPublicKey && chatId
-                    ? await safeDecrypt(
-                        originalEncrypted,
-                        chatId,
-                        peerPublicKey,
-                      )
+                    ? await safeDecrypt(raw, chatId, peerPublicKey)
                     : {
-                        text: originalEncrypted,
-                        flags: { isViewOnce: false, isHighlyForwarded: false },
+                        text: raw,
+                        flags: { isViewOnce: false },
                         conditions: "NONE",
                       };
-
-                const decryptedReplyTo =
+                const replyTo =
                   peerPublicKey && chatId
                     ? await safeDecryptReplyTo(m.replyTo, chatId, peerPublicKey)
                     : (m.replyTo ?? null);
-
                 return {
                   ...m,
-                  content: decryptedObj.text, // Text from payload
-                  isBurn: decryptedObj.flags?.isViewOnce || false, // ViewOnce flag
-                  conditions: decryptedObj.conditions || "NONE", // Any conditions applied
-                  encryptedContent: originalEncrypted, // encrypted content for saving to indexedDB
-                  replyTo: decryptedReplyTo,
-                } as Message;
+                  content: dec.text,
+                  isBurn: dec.flags?.isViewOnce || false,
+                  conditions: dec.conditions || "NONE",
+                  encryptedContent: raw,
+                  replyTo,
+                  _isOffline: true,
+                };
               }),
             );
-
-            const current = useChatStore.getState().messages;
-            useChatStore.setState({
-              messages: deduplicateMessages([...decrypted, ...current]),
-            });
+            // API data আসার আগে পর্যন্তই offline দেখাবে
+            // API load হলে নিচের effect replace করে দেবে
+            if (!apiLoadedRef.current) {
+              const cur = useChatStore.getState().messages;
+              useChatStore.setState({
+                messages: sortByTime(
+                  deduplicateMessages([...decrypted, ...cur]),
+                ),
+              });
+            }
           })
-          .catch((err) => console.log("No offline messages found", err));
+          .catch(() => {});
       }
 
-      // 🌐 স্টেপ ২: API hit for more messages
-      try {
-        const cursor = pageParam ? `&before=${pageParam}` : "";
-        const { data } = await api(
-          `/chats/${myId}/${chatId}/${contactId}/?limit=20${cursor}`,
-        );
-        if (!data.success)
-          throw new Error("Failed to load messages from server");
+      //  API fetch
+      const cursor = pageParam ? `&before=${pageParam}` : "";
+      const { data } = await api(
+        `/chats/${myId}/${chatId}/${contactId}/?limit=20${cursor}`,
+      );
+      if (!data.success) throw new Error("Failed to load messages from server");
 
-        const messages: Message[] = await Promise.all(
-          data.messages.map(async (m: RawMessage) => {
-            const originalEncrypted = m.content;
+      const messages: Message[] = await Promise.all(
+        data.messages.map(async (m: RawMessage) => {
+          const raw = m.content;
+          const dec =
+            peerPublicKey && chatId
+              ? await safeDecrypt(m.content, chatId, peerPublicKey)
+              : {
+                  text: m.content,
+                  flags: { isViewOnce: false },
+                  conditions: "NONE",
+                };
+          const replyTo =
+            peerPublicKey && chatId
+              ? await safeDecryptReplyTo(m.replyTo, chatId, peerPublicKey)
+              : (m.replyTo ?? null);
+          return {
+            ...m,
+            content: dec.text,
+            isBurn: dec.flags?.isViewOnce || false,
+            conditions: dec.conditions || "NONE",
+            encryptedContent: raw,
+            replyTo,
+            status:
+              m.senderId === myId
+                ? (m.messageStatus as MessageStatus)
+                : undefined,
+          } as Message & { encryptedContent?: string };
+        }),
+      );
 
-            const decryptedObj =
-              peerPublicKey && chatId
-                ? await safeDecrypt(m.content, chatId, peerPublicKey)
-                : {
-                    text: m.content,
-                    flags: { isViewOnce: false },
-                    conditions: "NONE",
-                  };
+      if (!pageParam) apiLoadedRef.current = true;
 
-            const decryptedReplyTo =
-              peerPublicKey && chatId
-                ? await safeDecryptReplyTo(m.replyTo, chatId, peerPublicKey)
-                : (m.replyTo ?? null);
-
-            return {
-              ...m,
-              content: decryptedObj.text, // Text from payload
-              isBurn: decryptedObj.flags?.isViewOnce || false, // View once flag
-              conditions: decryptedObj.conditions || "NONE", // Any conditions applied
-              encryptedContent: originalEncrypted, // encrypted content for saving to indexedDB
-              replyTo: decryptedReplyTo,
-              status:
-                m.senderId === myId
-                  ? (m.messageStatus as MessageStatus)
-                  : undefined,
-            } as Message & { encryptedContent?: string };
-          }),
-        );
-
-        return {
-          messages,
-          hasMore: data.pagination.hasMore,
-          nextCursor: data.pagination.nextCursor ?? null,
-        };
-      } catch (error) {
-        console.error("Error fetching online messages:", error);
-        throw error;
-      }
+      return {
+        messages,
+        hasMore: data.pagination.hasMore,
+        nextCursor: data.pagination.nextCursor ?? null,
+      };
     },
 
     initialPageParam: undefined as string | undefined,
@@ -232,35 +229,45 @@ export const useChatHistory = (
     refetchOnMount: false,
   });
 
-  // whenever new data comes in, merge it with existing store messages and deduplicate
-  // whenever new data comes in, merge it with existing store messages and deduplicate
+  //  Merge effect
   useEffect(() => {
-    if (
-      query.data &&
-      useChatStore.getState().activeContact?.customChatId === chatId
-    ) {
-      // 🔴 reverse() সরিয়ে দেওয়া হয়েছে, শুধু flatMap করে সব মেসেজ নেওয়া হলো
-      const allMessages = [...query.data.pages].flatMap((p) => p.messages);
+    if (!query.data) return;
+    if (useChatStore.getState().activeContact?.customChatId !== chatId) return;
 
-      const currentStoreMessages = useChatStore.getState().messages;
+    // pages[0] = most recent 20, pages[1] = older 20, ...
+    // flatMap → sort ascending → সব ঠিক
+    const allQueryMsgs = [...query.data.pages].flatMap((p) => p.messages);
+    const queryIds = new Set(allQueryMsgs.map((m) => m._id));
 
-      // 🔴 গ্যারান্টি দিয়ে Time অনুযায়ী Sort করা হচ্ছে (পুরনো ওপরে, নতুন নিচে)
-      const finalMessages = deduplicateMessages([
-        ...allMessages,
-        ...currentStoreMessages,
-      ]).sort((a: any, b: any) => {
-        const timeA = new Date(a.createdAt || 0).getTime();
-        const timeB = new Date(b.createdAt || 0).getTime();
-        return timeA - timeB; // Ascending order (Oldest -> Newest)
-      });
+    const currentStore = useChatStore.getState().messages;
 
-      useChatStore.setState({ messages: finalMessages });
+    // store এ আছে কিন্তু query তে নেই এমন সব messages রাখো
+    // এর মধ্যে আছে: socket messages, sent-but-not-yet-fetched messages (audio/video)
+    const nonQueryMsgs = currentStore.filter((m) => {
+      if (!m._id) return false;
+      if (queryIds.has(m._id)) return false; // query তে আছে — skip
+      if ((m as any)._isOffline) return false; // offline cache — skip
+      return true; // socket, just-sent, temp সব রাখো
+    });
 
-      if (finalMessages.length > 0) {
-        // indexDB save only the most recent 100 messages to limit storage usage
-        const recentMessagesToSave = finalMessages.slice(-100);
+    // socket IDs track করো (temp বাদে)
+    nonQueryMsgs.forEach((m) => {
+      if (!(m as any).isTemp) {
+        socketMsgIdsRef.current.add(m._id!);
+      }
+    });
 
-        const messagesToSave = recentMessagesToSave.map((m: any) => ({
+    const final = sortByTime(
+      deduplicateMessages([...allQueryMsgs, ...nonQueryMsgs]),
+    );
+
+    useChatStore.setState({ messages: final });
+
+    // IndexDB save
+    if (final.length > 0) {
+      saveChatOffline(
+        chatId ?? "",
+        final.slice(-100).map((m: any) => ({
           ...m,
           content:
             typeof m.encryptedContent === "string"
@@ -279,9 +286,8 @@ export const useChatHistory = (
                       : "",
               }
             : null,
-        }));
-        saveChatOffline(chatId ?? "", messagesToSave);
-      }
+        })),
+      );
     }
   }, [query.data, chatId]);
 
