@@ -156,7 +156,7 @@ export default function MessageList() {
               "linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px)",
             backgroundSize: "20px 20px",
           }
-        : {};
+        : {}; 
 
   //  Renders
   if (msgLoading) {

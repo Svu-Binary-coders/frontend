@@ -22,7 +22,6 @@ import {
   FileText,
   File,
   FileSpreadsheet,
-  Headphones,
   FileArchive,
   FileCode,
   FileAudio,
@@ -46,7 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-//  Global animation styles
+// ─── Global animation styles ──────────────────────────────────────────────────
 const bubbleAnimStyles = `
   @keyframes bubbleIn {
     from { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -59,7 +58,7 @@ const bubbleAnimStyles = `
   .bubble-enter { animation: bubbleIn 0.22s cubic-bezier(0.34,1.2,0.64,1) both; }
 `;
 
-//  helpers
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 const sizeLabel = (bytes: number) => {
   if (!bytes) return "";
@@ -73,6 +72,18 @@ const fmtDuration = (s: number) => {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 };
 
+const dateLabelFn = (createdAt: string | undefined): string => {
+  if (!createdAt) return "";
+  const d = new Date(createdAt);
+  const now = new Date();
+  const isToday =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+  if (isToday) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
 const safeStr = (val: unknown): string => {
   if (!val) return "";
   if (typeof val === "string") return val;
@@ -84,7 +95,7 @@ const safeStr = (val: unknown): string => {
   return "";
 };
 
-//  FileIcon
+// ─── FileIcon ─────────────────────────────────────────────────────────────────
 
 export const FileIcon = ({
   mimeType,
@@ -128,7 +139,7 @@ export const FileIcon = ({
   return <File className={cn("text-slate-400", className)} />;
 };
 
-//  Download button
+// ─── Download button ──────────────────────────────────────────────────────────
 type DlState = "idle" | "downloading" | "done" | "error";
 
 function useDownload() {
@@ -275,23 +286,25 @@ function DownloadBtn({
   );
 }
 
-//  Voice Message Player
+// ─── Voice Message Player ─────────────────────────────────────────────────────
 
 function VoicePlayer({
   url,
   name,
   size,
   isMine,
+  initialDuration,
 }: {
   url: string;
   name: string;
   size: number;
   isMine: boolean;
+  initialDuration?: number | null;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(initialDuration ?? 0);
   const bars = 30;
 
   const [heights] = useState(() =>
@@ -304,32 +317,33 @@ function VoicePlayer({
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const fetchExactDuration = async () => {
-      try {
-        const audioCtx = new (
-          window.AudioContext || (window as any).webkitAudioContext
-        )();
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
-        setDuration(decodedData.duration);
-      } catch (err) {
-        console.error("Failed to decode audio duration:", err);
-      }
+
+    const onMeta = () => {
+      if (audio.duration && isFinite(audio.duration))
+        setDuration(audio.duration);
     };
-    fetchExactDuration();
     const onTime = () => setCurrentTime(audio.currentTime);
     const onEnd = () => {
       setPlaying(false);
       setCurrentTime(0);
     };
+
+    audio.addEventListener("loadedmetadata", onMeta);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("ended", onEnd);
+
+    if (audio.readyState >= 1 && audio.duration && isFinite(audio.duration)) {
+      setDuration(audio.duration);
+    } else if (initialDuration) {
+      setDuration(initialDuration);
+    }
+
     return () => {
+      audio.removeEventListener("loadedmetadata", onMeta);
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("ended", onEnd);
     };
-  }, [url]);
+  }, [url, initialDuration]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -351,13 +365,13 @@ function VoicePlayer({
     audio.currentTime = ratio * duration;
   };
 
-  const progress = duration > 0 ? currentTime / duration : 0;
+  const progress = duration > 0 && playing ? currentTime / duration : 0;
   const displayTime =
     duration > 0
       ? playing
         ? fmtDuration(currentTime)
         : fmtDuration(duration)
-      : sizeLabel(size);
+      : "…";
 
   return (
     <div
@@ -395,28 +409,28 @@ function VoicePlayer({
           title="Seek"
         >
           {heights.map((h, i) => {
-            const barProgress = i / bars;
-            const active = barProgress <= progress;
-            const isNearPlayhead =
-              Math.abs(barProgress - progress) < 0.04 && playing;
+            const barCenter = (i + 0.5) / bars;
+            const active = barCenter <= progress;
+            const isPlayhead =
+              Math.abs(barCenter - progress) < 1.5 / bars && playing;
             return (
               <span
                 key={i}
                 style={{
                   height: `${h}%`,
-                  animation:
-                    playing && active && isNearPlayhead
-                      ? `voiceBar ${0.5 + (i % 3) * 0.15}s ease-in-out infinite`
-                      : undefined,
+                  animation: isPlayhead
+                    ? `voiceBar ${0.4 + (i % 4) * 0.1}s ease-in-out infinite`
+                    : undefined,
+                  transition: "background-color 80ms linear",
                 }}
                 className={cn(
-                  "inline-block w-[2.5px] rounded-full flex-shrink-0 transition-colors duration-150",
+                  "inline-block w-[2.5px] rounded-full flex-shrink-0",
                   isMine
                     ? active
                       ? "bg-white"
-                      : "bg-white/30"
+                      : "bg-white/25"
                     : active
-                      ? "bg-gradient-to-t from-blue-600 to-sky-400"
+                      ? "bg-sky-500 dark:bg-sky-400"
                       : "bg-slate-200 dark:bg-slate-600",
                 )}
               />
@@ -448,7 +462,7 @@ function VoicePlayer({
   );
 }
 
-//  Reply Preview
+// ─── Reply Preview ────────────────────────────────────────────────────────────
 
 function ReplyPreview({
   replyTo,
@@ -577,7 +591,7 @@ function ReplyPreview({
   );
 }
 
-//  Status icon
+// ─── Status icon ──────────────────────────────────────────────────────────────
 
 const StatusIcon = ({ status }: { status: MessageStatus }) => {
   if (status === MessageStatus.SENDING)
@@ -593,7 +607,7 @@ const StatusIcon = ({ status }: { status: MessageStatus }) => {
   return null;
 };
 
-//  Image grid
+// ─── Image grid ───────────────────────────────────────────────────────────────
 
 const MessageImageGrid = ({
   mediaAtts,
@@ -604,6 +618,7 @@ const MessageImageGrid = ({
   createdAt,
   timeFormat,
   status,
+  isImportant, // Added prop for Star
   onOpen,
 }: {
   mediaAtts: any[];
@@ -614,6 +629,7 @@ const MessageImageGrid = ({
   createdAt: any;
   timeFormat: any;
   status?: MessageStatus;
+  isImportant?: boolean; // Added prop type
   onOpen: (index: number) => void;
 }) => {
   const imgs = mediaAtts.filter((a: any) => a.type === "image");
@@ -662,6 +678,10 @@ const MessageImageGrid = ({
         )}
         {!hasCaption && !isTemp && (
           <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
+            {/* 🌟 Star Icon inside image overlay next to time */}
+            {isImportant && (
+              <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
+            )}
             <span className="text-[10px] text-white/90 font-medium">
               {createdAt ? timeFormatFn(createdAt, timeFormat) : ""}
             </span>
@@ -722,7 +742,7 @@ const MessageImageGrid = ({
   );
 };
 
-//  MessageBubble (main export)
+// ─── MessageBubble (main export) ──────────────────────────────────────────────
 
 export default function MessageBubble({ message }: { message: Message }) {
   const { myId } = useAuthStore();
@@ -754,7 +774,7 @@ export default function MessageBubble({ message }: { message: Message }) {
   const hasVoice = voiceAtts.length > 0;
   const hasFiles = fileAtts.length > 0;
 
-  //  Bubble border radius based on bubbleStyle
+  // ── Bubble border radius based on bubbleStyle ───────────────────────────────
   const textRadius =
     bubbleStyle === "modern"
       ? isMine
@@ -768,7 +788,7 @@ export default function MessageBubble({ message }: { message: Message }) {
     ? "rounded-2xl rounded-br-sm overflow-hidden"
     : "rounded-2xl rounded-bl-sm overflow-hidden";
 
-  //  Scroll to replied message
+  // ── Scroll to replied message ───────────────────────────────────────────────
   const scrollToReply = () => {
     if (!message.replyTo?._id) return;
     const el = document.getElementById(`message-${message.replyTo._id}`);
@@ -782,6 +802,28 @@ export default function MessageBubble({ message }: { message: Message }) {
     );
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
+
+  // ── Context menu button (shared) ────────────────────────────────────────────
+  const renderCtxBtn = (className?: string) =>
+    !isTemp ? (
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openCtx(e, message, isMine);
+        }}
+        className={cn(
+          "z-20 p-1 rounded-full transition-all duration-200",
+          "opacity-100 md:opacity-0 md:group-hover:opacity-100",
+          isMine
+            ? "bg-black/20 text-white hover:bg-black/40"
+            : "bg-black/10 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:bg-black/20",
+          className,
+        )}
+      >
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+    ) : null;
 
   // ════════════════════════════════════════════════════════════════════════════
   // Media / attachment bubble
@@ -815,12 +857,14 @@ export default function MessageBubble({ message }: { message: Message }) {
         <div
           id={`message-${message._id}`}
           className={cn(
-            "flex items-end gap-2 group bubble-enter",
+            "relative flex items-end gap-2 group bubble-enter",
             compactMode ? "mb-0.5" : "mb-2",
             isMine ? "ml-auto flex-row-reverse" : "mr-auto",
             "max-w-[75%]",
           )}
         >
+          {/* Note: Absolute top star badge removed from here */}
+
           <div
             onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
             className={cn(
@@ -832,24 +876,7 @@ export default function MessageBubble({ message }: { message: Message }) {
             )}
           >
             {/* Context menu trigger */}
-            {!isTemp && (
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openCtx(e, message, isMine);
-                }}
-                className={cn(
-                  "absolute top-2 right-2 z-20 p-1 rounded-full transition-all duration-200",
-                  "opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                  isMine
-                    ? "bg-black/20 text-white hover:bg-black/40"
-                    : "bg-black/10 dark:bg-white/10 text-slate-600 dark:text-slate-300 hover:bg-black/20",
-                )}
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-            )}
+            {renderCtxBtn("absolute top-2 right-2")}
 
             {/* Reply preview */}
             {message.replyTo && (
@@ -881,6 +908,7 @@ export default function MessageBubble({ message }: { message: Message }) {
                 createdAt={message.createdAt}
                 timeFormat={timeFormat}
                 status={message.status}
+                isImportant={message.isImportant} // Pass isImportant to show inside image
                 onOpen={(index) => {
                   setViewerIndex(index);
                   setViewerOpen(true);
@@ -916,10 +944,11 @@ export default function MessageBubble({ message }: { message: Message }) {
                 name={a.name}
                 size={a.size}
                 isMine={isMine}
+                initialDuration={a.duration ?? null}
               />
             ))}
 
-            {/* Generic file / audio  enhanced card */}
+            {/* Generic file / audio ─ enhanced card */}
             {fileAtts.map((f: any, i: number) => (
               <div
                 key={i}
@@ -994,15 +1023,40 @@ export default function MessageBubble({ message }: { message: Message }) {
                   {contentStr}
                 </span>
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* 🌟 Star Icon inside Caption Footer */}
+                  {message.isImportant && (
+                    <Star
+                      className={cn(
+                        "h-2.5 w-2.5 fill-current",
+                        isMine ? "text-amber-300" : "text-amber-400",
+                      )}
+                    />
+                  )}
                   <span
                     className={cn(
                       "text-[10px] font-medium",
                       isMine ? "text-white/55" : "text-slate-400",
                     )}
                   >
-                    {isTemp
-                      ? "Sending…"
-                      : timeFormatFn(message.createdAt!, timeFormat)}
+                    {isTemp ? (
+                      "Sending…"
+                    ) : (
+                      <>
+                        {dateLabelFn(message.createdAt) && (
+                          <span
+                            className={cn(
+                              "mr-1",
+                              isMine
+                                ? "text-white/40"
+                                : "text-slate-300 dark:text-slate-500",
+                            )}
+                          >
+                            {dateLabelFn(message.createdAt)}
+                          </span>
+                        )}
+                        {timeFormatFn(message.createdAt!, timeFormat)}
+                      </>
+                    )}
                   </span>
                   {isMine && message.status && !isTemp && (
                     <StatusIcon status={message.status} />
@@ -1011,32 +1065,58 @@ export default function MessageBubble({ message }: { message: Message }) {
               </div>
             )}
 
-            {/* Standalone time/status for voice/file when NO caption */}
-            {!hasCaption && !hasMedia && (hasVoice || hasFiles) && (
-              <div
-                className={cn(
-                  "flex justify-end items-center gap-1 px-3 py-1.5",
-                  isMine
-                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
-                    : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
-                )}
-              >
-                <span
+            {/* Standalone time/status for Video/Voice/File when NO caption and NO images */}
+            {!hasCaption &&
+              mediaAtts.filter((a) => a.type === "image").length === 0 &&
+              (hasVoice || hasFiles || videoAtts.length > 0) && (
+                <div
                   className={cn(
-                    "text-[10px] font-medium",
-                    isMine ? "text-white/55" : "text-slate-400",
+                    "flex justify-end items-center gap-1 px-3 py-1.5",
+                    isMine
+                      ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
+                      : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
                   )}
                 >
-                  {isTemp
-                    ? "Sending…"
-                    : message.createdAt &&
-                      timeFormatFn(message.createdAt, timeFormat)}
-                </span>
-                {isMine && message.status && !isTemp && (
-                  <StatusIcon status={message.status} />
-                )}
-              </div>
-            )}
+                  {/* 🌟 Star Icon inside Standalone Footer */}
+                  {message.isImportant && (
+                    <Star
+                      className={cn(
+                        "h-2.5 w-2.5 fill-current",
+                        isMine ? "text-amber-300" : "text-amber-400",
+                      )}
+                    />
+                  )}
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium",
+                      isMine ? "text-white/55" : "text-slate-400",
+                    )}
+                  >
+                    {isTemp
+                      ? "Sending…"
+                      : message.createdAt && (
+                          <>
+                            {dateLabelFn(message.createdAt) && (
+                              <span
+                                className={cn(
+                                  "mr-1",
+                                  isMine
+                                    ? "text-white/40"
+                                    : "text-slate-300 dark:text-slate-500",
+                                )}
+                              >
+                                {dateLabelFn(message.createdAt)}
+                              </span>
+                            )}
+                            {timeFormatFn(message.createdAt, timeFormat)}
+                          </>
+                        )}
+                  </span>
+                  {isMine && message.status && !isTemp && (
+                    <StatusIcon status={message.status} />
+                  )}
+                </div>
+              )}
           </div>
         </div>
       </>
@@ -1052,12 +1132,14 @@ export default function MessageBubble({ message }: { message: Message }) {
       <div
         id={`message-${message._id}`}
         className={cn(
-          "flex items-end gap-2 group bubble-enter transition-all duration-200",
+          "relative flex items-end gap-2 group bubble-enter transition-all duration-200",
           compactMode ? "mb-0.5" : "mb-3",
           isMine ? "ml-auto flex-row-reverse" : "mr-auto",
           "max-w-[80%]",
         )}
       >
+        {/* Note: Absolute top star badge removed from here */}
+
         <div
           onContextMenu={(e) => !isDeleted && openCtx(e, message, isMine)}
           className={cn(
@@ -1137,8 +1219,14 @@ export default function MessageBubble({ message }: { message: Message }) {
                 compactMode ? "mt-0" : "mt-1",
               )}
             >
+              {/* 🌟 Star Icon inside Text Footer */}
               {message.isImportant && (
-                <Star className="h-2.5 w-2.5 fill-current text-amber-300" />
+                <Star
+                  className={cn(
+                    "h-2.5 w-2.5 fill-current",
+                    isMine ? "text-amber-300" : "text-amber-400",
+                  )}
+                />
               )}
               {message.is_edited && !isDeleted && (
                 <span

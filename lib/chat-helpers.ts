@@ -35,3 +35,9 @@ export const avatarColor = (id?: string): string => {
   const sum = id.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return AVATAR_COLORS[sum % AVATAR_COLORS.length];
 };
+
+
+
+
+
+

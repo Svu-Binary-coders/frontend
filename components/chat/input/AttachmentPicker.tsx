@@ -13,6 +13,27 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
+const fallbackMimeTypes: Record<string, string> = {
+  js: "application/javascript",
+  ts: "application/typescript",
+  json: "application/json",
+  jsx: "text/jsx",
+  tsx: "text/tsx",
+  py: "text/x-python",
+  r: "text/plain", // R Language
+  java: "text/x-java-source",
+  cpp: "text/x-c",
+  c: "text/x-c",
+  go: "text/x-go",
+  php: "application/x-httpd-php",
+  sql: "application/sql",
+
+  // Documents & Archives
+  rar: "application/vnd.rar",
+  csv: "text/csv",
+  txt: "text/plain",
+};
+
 export function AttachmentPicker() {
   const { addFiles, isUploading } = useMediaStore();
   const imageRef = useRef<HTMLInputElement>(null);
@@ -20,10 +41,29 @@ export function AttachmentPicker() {
   const audioRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-    const { ok, error } = addFiles(files);
+  const handle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFiles = Array.from(e.target.files ?? []);
+    if (!rawFiles.length) return;
+
+    // ব্রাউজার MIME type দিতে না পারলে আমরা ম্যানুয়ালি সেট করে দেবো
+    const processedFiles = rawFiles.map((file) => {
+      if (!file.type) {
+        // ফাইলের নাম থেকে এক্সটেনশন বের করা (যেমন: app.js -> js)
+        const ext = file.name.split(".").pop()?.toLowerCase() || "";
+
+        // আমাদের লিস্টে থাকলে সেটা দেবো, না থাকলে ডিফল্ট বাইনারি টাইপ দেবো
+        const mimeType = fallbackMimeTypes[ext] || "application/octet-stream";
+
+        // File অবজেক্টের type read-only, তাই নতুন অবজেক্ট বানাচ্ছি
+        return new File([file], file.name, {
+          type: mimeType,
+          lastModified: file.lastModified,
+        });
+      }
+      return file;
+    });
+
+    const { ok, error } = await addFiles(processedFiles);
     if (!ok && error) toast.error(error);
     e.target.value = "";
   };
@@ -54,7 +94,8 @@ export function AttachmentPicker() {
       ref: fileRef,
       icon: FileText,
       label: "File",
-      accept: ".pdf,.zip,.rar,.doc,.docx,.xls,.xlsx,.txt,.csv",
+      // এখানে .js এবং .ts যুক্ত করা হলো যাতে ইউজার পিকার থেকে সিলেক্ট করতে পারে
+      accept: ".pdf,.zip,.rar,.doc,.docx,.xls,.xlsx,.txt,.csv,.js,.ts",
       multiple: true,
     },
   ];

@@ -605,6 +605,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       },
     );
 
+    
     // STAR ACK
     socket.on(
       "message_starred_ack",

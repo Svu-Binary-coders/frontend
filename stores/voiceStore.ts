@@ -4,18 +4,20 @@ import { create } from "zustand";
 interface VoiceState {
   isRecording: boolean;
   recordingTime: number;
-  compressedAudioFile: File | null; // 🔴 UI-তে প্রিভিউ দেখানোর জন্য এটি লাগবে
+  compressedAudioFile: File | null; // UI-তে প্রিভিউ দেখানোর জন্য
 
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<void>; // 🔴 এটি শুধু রেকর্ডিং থামাবে এবং ফাইল তৈরি করবে
+  // 🔴 এটি রেকর্ডিং থামাবে এবং ফাইল ও ডিউরেশন রিটার্ন করবে
+  stopRecording: () => Promise<{ file: File; duration: number } | null>;
   cancelRecording: () => void;
 }
 
+// স্টোরের বাইরে ভেরিয়েবল রাখা হয়েছে যাতে রি-রেন্ডারিংয়ে সমস্যা না হয়
 let mediaRecorder: MediaRecorder | null = null;
 let audioChunks: Blob[] = [];
 let timerInterval: NodeJS.Timeout | null = null;
 
-export const useVoiceStore = create<VoiceState>((set) => ({
+export const useVoiceStore = create<VoiceState>((set, get) => ({
   isRecording: false,
   recordingTime: 0,
   compressedAudioFile: null,
@@ -31,8 +33,10 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       };
 
       mediaRecorder.onstart = () => {
-        // befor starting new recording, reset everything
+        // নতুন রেকর্ডিং শুরুর আগে সবকিছু রিসেট করে নিন
         set({ isRecording: true, recordingTime: 0, compressedAudioFile: null });
+
+        // টাইমার শুরু করুন
         timerInterval = setInterval(() => {
           set((state) => ({ recordingTime: state.recordingTime + 1 }));
         }, 1000);
@@ -45,35 +49,42 @@ export const useVoiceStore = create<VoiceState>((set) => ({
     }
   },
 
-  // if recording is already stopped, it will just resolve immediately without doing anything
   stopRecording: async () => {
     return new Promise((resolve) => {
+      // যদি আগে থেকেই বন্ধ থাকে বা না থাকে, তবে null রিটার্ন করবে
       if (!mediaRecorder || mediaRecorder.state === "inactive") {
-        resolve();
+        resolve(null);
         return;
       }
 
       mediaRecorder.onstop = async () => {
+        // ১. সবার আগে টাইমার বন্ধ করুন
         if (timerInterval) clearInterval(timerInterval);
 
-        // craete a file from the recorded audio chunks
+        // ২. অডিও চাঙ্ক থেকে ফাইল তৈরি করুন
         const rawAudioBlob = new Blob(audioChunks, { type: "audio/webm" });
         const fileName = `voice_${Date.now()}.webm`;
         const audioFile = new File([rawAudioBlob], fileName, {
           type: "audio/webm",
         });
 
-        // save the compressed audio file in the store for preview and later use in the message sending
+        // ✅ ৩. টাইম জিরো করার আগে আসল ডিউরেশনটা ধরে রাখুন!
+        const finalDuration = get().recordingTime;
+
+        // ৪. স্টোর আপডেট করুন (এখানে recordingTime জিরো করবেন না, প্রিভিউর জন্য লাগবে)
         set({
           isRecording: false,
-          recordingTime: 0,
           compressedAudioFile: audioFile,
         });
 
+        // ৫. মাইক্রোফোনের এক্সেস রিলিজ করে দিন
         mediaRecorder?.stream.getTracks().forEach((track) => track.stop());
-        resolve();
+
+        // ✅ ৬. ফাইল এবং ডিউরেশন দুটোই রিটার্ন করে দিন
+        resolve({ file: audioFile, duration: finalDuration });
       };
 
+      // রেকর্ডিং থামানোর কমান্ড দিন
       mediaRecorder.stop();
     });
   },
@@ -82,10 +93,11 @@ export const useVoiceStore = create<VoiceState>((set) => ({
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
       mediaRecorder.stop();
     }
+
     if (timerInterval) clearInterval(timerInterval);
     mediaRecorder?.stream.getTracks().forEach((track) => track.stop());
 
-    // after canceling, reset everything
+    // ক্যান্সেল করলে সবকিছু রিসেট করে দিন
     set({ isRecording: false, recordingTime: 0, compressedAudioFile: null });
   },
 }));

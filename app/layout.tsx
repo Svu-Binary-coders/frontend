@@ -26,6 +26,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+
+  // load service worker
+  
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

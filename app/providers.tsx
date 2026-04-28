@@ -117,6 +117,19 @@ export default function Providers({ children }: { children: React.ReactNode }) {
     () => true,
     () => false,
   );
+  // register service worker on client side
+  // useEffect(() => {
+  //   if ("serviceWorker" in navigator) {
+  //     navigator.serviceWorker
+  //       .register("/sw.js", { type: "module" })
+  //       .then((registration) => {
+  //         console.log(" Service Worker Registered:", registration.scope);
+  //       })
+  //       .catch((error) => {
+  //         console.error(" Service Worker Registration failed:", error);
+  //       });
+  //   }
+  // }, []);
 
   useEffect(() => {
     if (isClient) {
