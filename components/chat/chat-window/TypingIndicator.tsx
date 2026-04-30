@@ -2,7 +2,9 @@
 import { useChatStore } from "@/stores/chatStore";
 
 export default function TypingIndicator() {
-  const { isTyping, activeContact } = useChatStore();
+  const isTyping = useChatStore((state) => state.isTyping);
+  const activeContact = useChatStore((state) => state.activeContact);
+
   if (!isTyping || !activeContact) return null;
 
   return (

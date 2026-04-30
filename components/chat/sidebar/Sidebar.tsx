@@ -286,7 +286,7 @@ export default function Sidebar() {
                   : "Start a new conversation below"}
               </p>
             </div>
-          </div>
+          </div>  
         ) : (
           /* Contact list */
           <div className="pb-4">

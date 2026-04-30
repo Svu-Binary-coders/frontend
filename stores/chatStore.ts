@@ -13,6 +13,7 @@ import { getQueryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
 import { secureDecryptMessage, secureEncryptMessage } from "@/helper/E2EHelper";
+import { clearTimeout } from "timers";
 
 // ==========================================
 // HELPERS
@@ -393,10 +394,22 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       existing.removeAllListeners();
     }
 
+    const myId = useAuthStore.getState().myId;
+    const { activeContact } = get();
     const socket = io(SOCKET_URL, {
       reconnection: true,
       reconnectionDelay: 1000,
+      withCredentials: true,
     });
+    // when socket connects, emit setup with userId to register presence and join personal room
+    if (myId) {
+      socket.emit("setup", myId);
+    }
+    // if any room alrady open ,reconect to that room
+    if (activeContact?.customChatId) {
+      socket.emit("join_chat", activeContact.customChatId);
+    }
+
     set({ socket });
 
     // ==========================================
@@ -605,7 +618,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       },
     );
 
-    
     // STAR ACK
     socket.on(
       "message_starred_ack",
@@ -660,22 +672,37 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }));
     });
 
-    socket.on("show_typing", ({ senderId }: { senderId: string }) => {
-      if (senderId === get().activeContact?._id) set({ isTyping: true });
+   // ==========================================
+    // TYPING INDICATORS
+    // ==========================================
+    socket.on("show_typing", (data: any) => {
+      const { activeContact } = get();
+      
+      if (data.senderId === activeContact?._id) {
+        set({ isTyping: true });
+      }
     });
 
-    socket.on("hide_typing", ({ senderId }: { senderId: string }) => {
-      if (senderId === get().activeContact?._id) set({ isTyping: false });
+    socket.on("hide_typing", (data: any) => {
+      const { activeContact } = get();
+      
+      if (data.senderId === activeContact?._id) {
+        set({ isTyping: false });
+      }
     });
 
     return () => socket.disconnect();
   },
 
-  // ==========================================
-  // OPEN CHAT
-  // ==========================================
   openChat: (contact: Contact | null) => {
-    const { socket, activeContact } = get();
+    const { socket, activeContact, _typingTimeout } = get();
+    if (_typingTimeout) clearTimeout(_typingTimeout);
+    set({ isTyping: false });
+    // 🌟 1. Jodi aage theke kono chat open thake, tahole sei room theke leave koro
+    if (activeContact?.customChatId) {
+      socket?.emit("leave_chat", activeContact.customChatId);
+    }
+
     if (!contact) {
       set({
         activeContact: null,
@@ -685,7 +712,9 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       });
       return;
     }
+
     if (activeContact?._id === contact._id) return;
+
     set({
       activeContact: contact,
       isTyping: false,
@@ -697,6 +726,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         c._id === contact._id ? { ...c, unreadCount: 0 } : c,
       ),
     });
+
+    // 🌟 2. Notun chat room a join koro
+    if (contact.customChatId) {
+      socket?.emit("join_chat", contact.customChatId);
+    }
+
     socket?.emit("mark_all_read", {
       chatRoomId: contact.customChatId,
       senderId: contact._id,
@@ -776,7 +811,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }
 
       // NORMAL SEND
-      socket?.emit("stop_typing", { receiverId: activeContact._id });
+      socket?.emit("stop_typing", { chatRoomId: chatId }); // 🌟 এখানেও chatRoomId দিতে হবে
       clearTimeout(_typingTimeout);
 
       const tempId = `temp_${Date.now()}`;
@@ -803,9 +838,11 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       socket?.emit(
         "send_message",
         {
+          chatRoomId: chatId,
           receiverId: activeContact._id,
           content: encryptedContent,
           replyToMessageId: replyTo?._id,
+          userId: myId,
         },
         (res: any) => {
           if (res?.success) {
@@ -860,7 +897,19 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   },
 
   handleTyping: (value: string) => {
+    const { socket, activeContact, _typingTimeout } = get();
     set({ msgInput: value });
+
+    if (!activeContact?.customChatId || !socket) return;
+    socket.emit("typing", { chatRoomId: activeContact.customChatId });
+
+    if (_typingTimeout) clearTimeout(_typingTimeout);
+
+    const timeout = setTimeout(() => {
+      socket.emit("stop_typing", { chatRoomId: activeContact.customChatId });
+    }, 5000);
+
+    set({ _typingTimeout: timeout });
   },
 
   handleAction: (action: string, msg: Message) => {

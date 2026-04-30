@@ -214,19 +214,17 @@ export default function InputBar() {
     removeTempMessage,
   } = useChatStore();
 
-  // 🔴 ১. mediaStore থেকে uploadVoice ইম্পোর্ট করা হলো এবং isUploading নেওয়া হলো
   const {
     selectedMedias,
     uploadingMedias,
-    isUploading, // 👈 এটি এখন সব আপলোডের মাস্টার লোডিং স্টেট
+    isUploading,
     addFiles,
     removeFile,
     clearMedia,
     uploadAndConfirm,
-    uploadVoice, // 👈 নতুন ফাংশন
+    uploadVoice,
   } = useMediaStore();
 
-  // 🔴 ২. voiceStore থেকে প্রিভিউ করার জন্য প্রয়োজনীয় সবকিছু নেওয়া হলো
   const {
     isRecording,
     recordingTime,
@@ -237,21 +235,26 @@ export default function InputBar() {
   } = useVoiceStore();
 
   const [localInput, setLocalInput] = useState("");
-  const typedUrl = extractUrl(msgInput);
   const [debouncedUrl, setDebouncedUrl] = useState<string | null>(null);
   const [hideLinkPreview, setHideLinkPreview] = useState(false);
+
+  // ── Refs ─────────────────────────────────────────────────────────────────────
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const storeUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const isEmittingTypingRef = useRef(false);
-
   const inputRef = useRef<HTMLInputElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
 
+  // ── Store → local sync (emoji, edit prefill, Esc clear) ──────────────────────
   useEffect(() => {
     setLocalInput(msgInput);
   }, [msgInput]);
 
+  // ── reply/edit হলে input focus ────────────────────────────────────────────────
   useEffect(() => {
     if (replyTo || editingMsg) {
       const t = setTimeout(() => inputRef.current?.focus(), 80);
@@ -259,58 +262,60 @@ export default function InputBar() {
     }
   }, [replyTo, editingMsg]);
 
+  // ── Link preview debounce ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!msgInput.trim()) {
       setDebouncedUrl(null);
       setHideLinkPreview(false);
       return;
     }
-
     const handler = setTimeout(() => {
       const url = extractUrl(msgInput);
       const isValidDomain =
         /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/.*)?$/.test(url || "");
-
-      if (url && isValidDomain) {
-        setDebouncedUrl(url);
-      } else {
-        setDebouncedUrl(null);
-      }
+      setDebouncedUrl(url && isValidDomain ? url : null);
     }, 500);
-
-    return () => {
-      clearTimeout(handler);
-    };
+    return () => clearTimeout(handler);
   }, [msgInput]);
 
   const { data: livePreview, isLoading: isPreviewLoading } = useLinkPreview(
     debouncedUrl && !hideLinkPreview ? debouncedUrl : null,
   );
 
+  // ── Input change — local fast, store debounced, typing chatRoomId ─────────────
   const handleLocalChange = (value: string) => {
+    // 1. Local state — instant
     setLocalInput(value);
-    useChatStore.setState({ msgInput: value });
 
-    if (!activeContact) return;
+    // 2. Store sync — 50ms debounce (input violation এড়াতে)
+    clearTimeout(storeUpdateTimerRef.current);
+    storeUpdateTimerRef.current = setTimeout(() => {
+      useChatStore.setState({ msgInput: value });
+    }, 50);
+
+    // 3. Typing socket — chatRoomId দিয়ে (1-1 এবং group দুটোতেই কাজ করে)
+    if (!activeContact?.customChatId) return;
     const socket = useChatStore.getState().socket;
 
     if (!isEmittingTypingRef.current) {
-      socket?.emit("typing", { receiverId: activeContact._id });
+      socket?.emit("typing", { chatRoomId: activeContact.customChatId });
       isEmittingTypingRef.current = true;
     }
     clearTimeout(typingTimerRef.current);
     typingTimerRef.current = setTimeout(() => {
-      socket?.emit("stop_typing", { receiverId: activeContact._id });
+      socket?.emit("stop_typing", { chatRoomId: activeContact.customChatId });
       isEmittingTypingRef.current = false;
     }, 2000);
   };
 
+  // ── contact বদলালে বা unmount এ typing stop ───────────────────────────────────
   useEffect(() => {
     return () => {
       clearTimeout(typingTimerRef.current);
-      if (isEmittingTypingRef.current && activeContact) {
+      clearTimeout(storeUpdateTimerRef.current);
+      if (isEmittingTypingRef.current && activeContact?.customChatId) {
         useChatStore.getState().socket?.emit("stop_typing", {
-          receiverId: activeContact._id,
+          chatRoomId: activeContact.customChatId,
         });
         isEmittingTypingRef.current = false;
       }
@@ -367,19 +372,21 @@ export default function InputBar() {
     inputRef.current?.focus();
   };
 
-  // 🔴 ৩. Send বাটনের মাস্টার লজিক
   const onSendMessage = async () => {
     if (!activeContact?.customChatId) return;
 
+    // send এর আগে typing stop + store instant sync
     clearTimeout(typingTimerRef.current);
+    clearTimeout(storeUpdateTimerRef.current);
+    useChatStore.setState({ msgInput: localInput });
     if (isEmittingTypingRef.current) {
-      useChatStore
-        .getState()
-        .socket?.emit("stop_typing", { receiverId: activeContact._id });
+      useChatStore.getState().socket?.emit("stop_typing", {
+        chatRoomId: activeContact.customChatId,
+      });
       isEmittingTypingRef.current = false;
     }
 
-    // 🟢 ৩.১: Voice Message Send (ইউজার যদি প্রিভিউ করে সেন্ডে চাপ দেয়)
+    // Voice
     if (compressedAudioFile) {
       if (isUploading) return;
       await uploadVoice(
@@ -392,11 +399,11 @@ export default function InputBar() {
           toast.error("Failed to send voice message");
         },
       );
-      cancelRecording(); // প্রিভিউ ডিলিট করে ইনপুট ক্লিন করা
+      cancelRecording();
       return;
     }
 
-    // 🟢 ৩.২: Media (Image/Video/File) Send
+    // Media
     if (selectedMedias.length > 0) {
       if (isUploading) return;
       const text = localInput.trim();
@@ -416,7 +423,7 @@ export default function InputBar() {
       return;
     }
 
-    // 🟢 ৩.৩: Text Send
+    // Text
     if (localInput.trim()) {
       sendMessage();
       setLocalInput("");
@@ -441,7 +448,6 @@ export default function InputBar() {
 
   const openPicker = (id: string) => document.getElementById(id)?.click();
 
-  // 🔴 ৪. Button Disable লজিক আপডেট
   const hasContent =
     localInput.trim().length > 0 ||
     selectedMedias.length > 0 ||
@@ -516,7 +522,7 @@ export default function InputBar() {
         </div>
       )}
 
-      {/* Live Link Preview UI */}
+      {/* Live Link Preview */}
       {debouncedUrl &&
         !hideLinkPreview &&
         (isPreviewLoading || livePreview?.title) && (
@@ -541,7 +547,6 @@ export default function InputBar() {
                     <ExternalLink className="h-4 w-4 text-slate-400" />
                   </div>
                 )}
-
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
                     {livePreview?.title ||
@@ -565,7 +570,6 @@ export default function InputBar() {
                 </div>
               </>
             )}
-
             <Button
               variant="ghost"
               size="icon"
@@ -666,7 +670,7 @@ export default function InputBar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={stopRecording} // 👈 স্টপ করলে প্রিভিউ দেখাবে
+                  onClick={stopRecording}
                   className="h-8 w-8 text-sky-500 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-900/50 rounded-full"
                 >
                   <Square className="h-4 w-4 fill-current" />
@@ -691,7 +695,6 @@ export default function InputBar() {
               </Button>
             </div>
           ) : (
-            // 🟢 সাধারণ টেক্সট ইনপুট
             <>
               <input
                 ref={inputRef}
@@ -734,7 +737,7 @@ export default function InputBar() {
             size="icon"
             className={cn(
               "relative h-11 w-11 rounded-2xl shrink-0 transition-all duration-200 shadow-sm overflow-hidden",
-              isRecording ? "hidden" : "flex", // 👈 রেকর্ডিং অবস্থায় সেন্ড বাটন হাইড থাকবে
+              isRecording ? "hidden" : "flex",
               "bg-sky-500 hover:bg-sky-600 text-white dark:bg-sky-600 dark:hover:bg-sky-500",
               "disabled:opacity-80 disabled:cursor-not-allowed",
             )}
