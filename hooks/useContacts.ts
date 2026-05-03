@@ -6,6 +6,7 @@ import { useChatStore } from "@/stores/chatStore";
 import api from "@/lib/axios";
 import { secureDecryptMessage } from "@/helper/E2EHelper";
 import { FCPVersion } from "@/core/e2e";
+import { useChatSettingsStore } from "@/stores/chatSettingsStore";
 
 const isEncrypted = (text: unknown): boolean => {
   let str = "";
@@ -26,6 +27,10 @@ export const useContacts = (userId: string) => {
     queryFn: async () => {
       const { data } = await api.get(`/chats/${userId}/contacts`);
       if (!data.success) throw new Error("Failed to load contacts");
+
+      // load all contact settings via chatSettingsStore
+        useChatSettingsStore.getState().loadAll();
+
       return data.contacts;
     },
     enabled: !!userId,

@@ -30,7 +30,6 @@ export interface Attachment {
   path?: string;
 }
 
-
 export interface Message {
   _id?: string;
   senderId: string;
@@ -46,6 +45,9 @@ export interface Message {
   isForwarded?: boolean;
   is_deleted_for_everyone?: boolean;
   replyTo?: { _id: string; content: string; senderId: string } | null;
+  reactions?:
+    | { [emoji: string]: string[] }
+    | Array<{ emoji: string; userIds?: string[]; userId?: string }>;
 }
 
 export interface ContextMenuState {
@@ -54,4 +56,4 @@ export interface ContextMenuState {
   position: { x: number; y: number; flip: boolean };
 }
 
-export type StorageProvider="cloudinary" | "supabase";
+export type StorageProvider = "cloudinary" | "supabase";

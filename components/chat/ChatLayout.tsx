@@ -71,23 +71,22 @@ export default function ChatLayout() {
               className={cn(
                 "flex shrink-0 border-r border-slate-100 dark:border-slate-800 transition-all duration-200",
                 activeContact
-                  ? "hidden md:flex md:w-[320px] lg:w-[360px]" // চ্যাট ওপেন থাকলে মোবাইলে লুকানো থাকবে, কিন্তু md/lg স্ক্রিনে দেখাবে
-                  : "flex w-full md:w-[320px] lg:w-[360px]", // চ্যাট ওপেন না থাকলে মোবাইলে ফুল উইডথ (w-full) নেবে
+                  ? "hidden md:flex md:w-[320px] lg:w-[360px]"
+                  : "flex w-full md:w-[320px] lg:w-[360px]", 
               )}
             >
-              {/* আগে এখানে w-[320px] ছিল, এখন w-full করে দেওয়া হয়েছে যাতে এটি র‍্যাপারের রেস্পন্সিভ সাইজ অনুযায়ী ছোট-বড় হতে পারে */}
               <div className="flex flex-col h-full w-full bg-white dark:bg-slate-950 shrink-0">
                 {renderBodyLeftPanel(activeView)}
               </div>
             </div>
 
-            {/* 🔴 Right Chat Window Panel */}
+            {/* Right Chat Window Panel */}
             <div
               className={cn(
                 "flex-1 flex flex-col overflow-hidden min-w-0 bg-slate-50 dark:bg-[#0b141a]",
                 activeContact
-                  ? "flex" // চ্যাট ওপেন থাকলে মোবাইলেও দেখাবে
-                  : "hidden md:flex", // চ্যাট ওপেন না থাকলে মোবাইলে লুকানো থাকবে
+                  ? "flex" 
+                  : "hidden md:flex",
               )}
             >
               <ChatWindow />

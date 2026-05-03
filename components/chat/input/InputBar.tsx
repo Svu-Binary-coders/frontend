@@ -238,7 +238,7 @@ export default function InputBar() {
   const [debouncedUrl, setDebouncedUrl] = useState<string | null>(null);
   const [hideLinkPreview, setHideLinkPreview] = useState(false);
 
-  // ── Refs ─────────────────────────────────────────────────────────────────────
+  //  Refs
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -249,12 +249,12 @@ export default function InputBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
 
-  // ── Store → local sync (emoji, edit prefill, Esc clear) ──────────────────────
+  //  Store → local sync (emoji, edit prefill, Esc clear)
   useEffect(() => {
     setLocalInput(msgInput);
   }, [msgInput]);
 
-  // ── reply/edit হলে input focus ────────────────────────────────────────────────
+  //  reply/edit হলে input focus
   useEffect(() => {
     if (replyTo || editingMsg) {
       const t = setTimeout(() => inputRef.current?.focus(), 80);
@@ -262,7 +262,7 @@ export default function InputBar() {
     }
   }, [replyTo, editingMsg]);
 
-  // ── Link preview debounce ──────────────────────────────────────────────────────
+  //  Link preview debounce
   useEffect(() => {
     if (!msgInput.trim()) {
       setDebouncedUrl(null);
@@ -282,7 +282,7 @@ export default function InputBar() {
     debouncedUrl && !hideLinkPreview ? debouncedUrl : null,
   );
 
-  // ── Input change — local fast, store debounced, typing chatRoomId ─────────────
+  //  Input change — local fast, store debounced, typing chatRoomId
   const handleLocalChange = (value: string) => {
     // 1. Local state — instant
     setLocalInput(value);
@@ -308,7 +308,7 @@ export default function InputBar() {
     }, 2000);
   };
 
-  // ── contact বদলালে বা unmount এ typing stop ───────────────────────────────────
+  //  contact বদলালে বা unmount এ typing stop
   useEffect(() => {
     return () => {
       clearTimeout(typingTimerRef.current);

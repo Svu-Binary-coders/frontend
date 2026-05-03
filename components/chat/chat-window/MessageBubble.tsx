@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/authStore";
 import LinkPreviewCard from "./LinkPreviewCard";
 import {
   Check,
+  Forward,
   CheckCheck,
   Clock,
   AlertCircle,
@@ -24,7 +25,6 @@ import {
   FileSpreadsheet,
   FileArchive,
   FileCode,
-  FileAudio,
   FileVideo,
   FileImage,
   Play,
@@ -45,7 +45,26 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// ─── Global animation styles ──────────────────────────────────────────────────
+// ─── Type fix: reactions can be array (from DB) or object (normalized) ───────
+// DB দেয়: reactions: []  অথবা  reactions: [{emoji, userIds}]
+// Type এ আমরা normalize করে নিই: { "👍": ["userId1"] }
+type ReactionMap = { [emoji: string]: string[] };
+
+function normalizeReactions(raw: any): ReactionMap {
+  if (!raw) return {};
+  // Already object map
+  if (!Array.isArray(raw)) return raw as ReactionMap;
+  // Array of { emoji, userIds } or { emoji, userId }
+  const map: ReactionMap = {};
+  for (const item of raw) {
+    if (item?.emoji) {
+      map[item.emoji] = item.userIds ?? (item.userId ? [item.userId] : []);
+    }
+  }
+  return map;
+}
+
+//  Global animation styles
 const bubbleAnimStyles = `
   @keyframes bubbleIn {
     from { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -55,10 +74,16 @@ const bubbleAnimStyles = `
     0%, 100% { transform: scaleY(0.4); }
     50%       { transform: scaleY(1);   }
   }
+  @keyframes reactionPop {
+    0%   { transform: scale(0.5); opacity: 0; }
+    70%  { transform: scale(1.15); }
+    100% { transform: scale(1); opacity: 1; }
+  }
   .bubble-enter { animation: bubbleIn 0.22s cubic-bezier(0.34,1.2,0.64,1) both; }
+  .reaction-pop { animation: reactionPop 0.25s cubic-bezier(0.34,1.4,0.64,1) both; }
 `;
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+//  helpers
 
 const sizeLabel = (bytes: number) => {
   if (!bytes) return "";
@@ -95,7 +120,71 @@ const safeStr = (val: unknown): string => {
   return "";
 };
 
-// ─── FileIcon ─────────────────────────────────────────────────────────────────
+// ─── Forwarded Label ──────────────────────────────────────────────────────────
+function ForwardedLabel({ isMine }: { isMine: boolean }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 text-[10px] mb-1.5 select-none",
+        isMine ? "text-white/50" : "text-slate-400 dark:text-slate-500",
+      )}
+    >
+      <Forward className="h-3 w-3" />
+      <span>Forwarded</span>
+    </div>
+  );
+}
+
+// ─── Reaction Bar ─────────────────────────────────────────────────────────────
+function ReactionBar({
+  reactions,
+  myId,
+  isMine,
+}: {
+  reactions: ReactionMap;
+  myId: string;
+  isMine: boolean;
+}) {
+  const entries = Object.entries(reactions).filter(
+    ([, users]) => users.length > 0,
+  );
+  if (entries.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap gap-1 mt-1",
+        isMine ? "justify-end" : "justify-start",
+      )}
+    >
+      {entries.map(([emoji, users]) => {
+        const iReacted = users.includes(myId);
+        return (
+          <div
+            key={emoji}
+            className={cn(
+              "reaction-pop flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px] font-medium select-none cursor-default",
+              iReacted
+                ? isMine
+                  ? "bg-white/25 ring-1 ring-white/40 text-white"
+                  : "bg-sky-100 dark:bg-sky-900/40 ring-1 ring-sky-300 dark:ring-sky-700 text-sky-700 dark:text-sky-300"
+                : isMine
+                  ? "bg-white/10 text-white/70"
+                  : "bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400",
+            )}
+          >
+            <span>{emoji}</span>
+            {users.length > 1 && (
+              <span className="text-[10px] tabular-nums">{users.length}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+//  FileIcon
 
 export const FileIcon = ({
   mimeType,
@@ -139,7 +228,7 @@ export const FileIcon = ({
   return <File className={cn("text-slate-400", className)} />;
 };
 
-// ─── Download button ──────────────────────────────────────────────────────────
+//  Download button
 type DlState = "idle" | "downloading" | "done" | "error";
 
 function useDownload() {
@@ -286,7 +375,7 @@ function DownloadBtn({
   );
 }
 
-// ─── Voice Message Player ─────────────────────────────────────────────────────
+//  Voice Message Player
 
 function VoicePlayer({
   url,
@@ -317,7 +406,6 @@ function VoicePlayer({
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-
     const onMeta = () => {
       if (audio.duration && isFinite(audio.duration))
         setDuration(audio.duration);
@@ -327,17 +415,12 @@ function VoicePlayer({
       setPlaying(false);
       setCurrentTime(0);
     };
-
     audio.addEventListener("loadedmetadata", onMeta);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("ended", onEnd);
-
-    if (audio.readyState >= 1 && audio.duration && isFinite(audio.duration)) {
+    if (audio.readyState >= 1 && audio.duration && isFinite(audio.duration))
       setDuration(audio.duration);
-    } else if (initialDuration) {
-      setDuration(initialDuration);
-    }
-
+    else if (initialDuration) setDuration(initialDuration);
     return () => {
       audio.removeEventListener("loadedmetadata", onMeta);
       audio.removeEventListener("timeupdate", onTime);
@@ -361,8 +444,7 @@ function VoicePlayer({
     const audio = audioRef.current;
     if (!audio || !duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = (e.clientX - rect.left) / rect.width;
-    audio.currentTime = ratio * duration;
+    audio.currentTime = ((e.clientX - rect.left) / rect.width) * duration;
   };
 
   const progress = duration > 0 && playing ? currentTime / duration : 0;
@@ -383,8 +465,6 @@ function VoicePlayer({
       )}
     >
       <audio ref={audioRef} src={url} preload="metadata" />
-
-      {/* Play/Pause button */}
       <button
         onClick={togglePlay}
         className={cn(
@@ -400,9 +480,7 @@ function VoicePlayer({
           <Play className="h-4 w-4 fill-current translate-x-[1px]" />
         )}
       </button>
-
       <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-        {/* Waveform bars */}
         <div
           className="flex items-center gap-[2px] h-7 cursor-pointer"
           onClick={seek}
@@ -437,8 +515,6 @@ function VoicePlayer({
             );
           })}
         </div>
-
-        {/* Time + mic icon */}
         <div className="flex items-center justify-between">
           <span
             className={cn(
@@ -462,7 +538,7 @@ function VoicePlayer({
   );
 }
 
-// ─── Reply Preview ────────────────────────────────────────────────────────────
+//  Reply Preview
 
 function ReplyPreview({
   replyTo,
@@ -482,7 +558,6 @@ function ReplyPreview({
   const files = atts.filter(
     (a: any) => a.type === "file" || a.type === "audio",
   );
-
   const replyContent = safeStr(replyTo.content);
   const hasText = !!replyContent.trim();
   const senderLabel = replyTo.senderId === myId ? "You" : "Message";
@@ -498,7 +573,6 @@ function ReplyPreview({
       )}
     >
       <CornerUpRight className="h-3 w-3 shrink-0 opacity-50" />
-
       {imgs.length > 0 && (
         <div className="relative w-9 h-9 rounded-lg overflow-hidden shrink-0 ring-1 ring-white/20">
           <img
@@ -508,7 +582,6 @@ function ReplyPreview({
           />
         </div>
       )}
-
       {vids.length > 0 &&
         imgs.length === 0 &&
         (() => {
@@ -542,7 +615,6 @@ function ReplyPreview({
             </div>
           );
         })()}
-
       <div className="flex flex-col min-w-0 flex-1">
         <span
           className={cn(
@@ -591,7 +663,7 @@ function ReplyPreview({
   );
 }
 
-// ─── Status icon ──────────────────────────────────────────────────────────────
+//  Status icon
 
 const StatusIcon = ({ status }: { status: MessageStatus }) => {
   if (status === MessageStatus.SENDING)
@@ -607,7 +679,7 @@ const StatusIcon = ({ status }: { status: MessageStatus }) => {
   return null;
 };
 
-// ─── Image grid ───────────────────────────────────────────────────────────────
+//  Image grid
 
 const MessageImageGrid = ({
   mediaAtts,
@@ -618,7 +690,7 @@ const MessageImageGrid = ({
   createdAt,
   timeFormat,
   status,
-  isImportant, // Added prop for Star
+  isImportant,
   onOpen,
 }: {
   mediaAtts: any[];
@@ -629,7 +701,7 @@ const MessageImageGrid = ({
   createdAt: any;
   timeFormat: any;
   status?: MessageStatus;
-  isImportant?: boolean; // Added prop type
+  isImportant?: boolean;
   onOpen: (index: number) => void;
 }) => {
   const imgs = mediaAtts.filter((a: any) => a.type === "image");
@@ -658,7 +730,6 @@ const MessageImageGrid = ({
           )}
           style={{ maxHeight: "300px" }}
         />
-        {/* Hover shimmer */}
         {!isTemp && (
           <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/10 transition-colors duration-200 rounded-inherit" />
         )}
@@ -678,7 +749,6 @@ const MessageImageGrid = ({
         )}
         {!hasCaption && !isTemp && (
           <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1 bg-black/40 backdrop-blur-sm rounded-full px-2 py-0.5">
-            {/* 🌟 Star Icon inside image overlay next to time */}
             {isImportant && (
               <Star className="h-2.5 w-2.5 fill-amber-400 text-amber-400" />
             )}
@@ -742,7 +812,9 @@ const MessageImageGrid = ({
   );
 };
 
-// ─── MessageBubble (main export) ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+//  MessageBubble (main export)
+// ════════════════════════════════════════════════════════════════════════════
 
 export default function MessageBubble({ message }: { message: Message }) {
   const { myId } = useAuthStore();
@@ -759,6 +831,14 @@ export default function MessageBubble({ message }: { message: Message }) {
   const attachments: any[] = (message as any).attachments ?? [];
   const uploadProgress = (message as any).uploadProgress ?? 0;
 
+  // ── Normalize forwarded flag (DB: is_forwarded, type: isForwarded) ──────
+  const isForwarded =
+    message.isForwarded ?? (message as any).is_forwarded ?? false;
+
+  // ── Normalize reactions (DB: [] or [{emoji, userIds}], type: object map) ─
+  const reactions = normalizeReactions(message.reactions);
+  const hasReactions = Object.values(reactions).some((u) => u.length > 0);
+
   const contentStr = safeStr(message.content);
   const hasCaption = !!contentStr.trim();
 
@@ -774,7 +854,6 @@ export default function MessageBubble({ message }: { message: Message }) {
   const hasVoice = voiceAtts.length > 0;
   const hasFiles = fileAtts.length > 0;
 
-  // ── Bubble border radius based on bubbleStyle ───────────────────────────────
   const textRadius =
     bubbleStyle === "modern"
       ? isMine
@@ -788,7 +867,6 @@ export default function MessageBubble({ message }: { message: Message }) {
     ? "rounded-2xl rounded-br-sm overflow-hidden"
     : "rounded-2xl rounded-bl-sm overflow-hidden";
 
-  // ── Scroll to replied message ───────────────────────────────────────────────
   const scrollToReply = () => {
     if (!message.replyTo?._id) return;
     const el = document.getElementById(`message-${message.replyTo._id}`);
@@ -803,7 +881,6 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => el.classList.remove("opacity-50", "scale-[1.02]"), 800);
   };
 
-  // ── Context menu button (shared) ────────────────────────────────────────────
   const renderCtxBtn = (className?: string) =>
     !isTemp ? (
       <button
@@ -863,260 +940,277 @@ export default function MessageBubble({ message }: { message: Message }) {
             "max-w-[75%]",
           )}
         >
-          {/* Note: Absolute top star badge removed from here */}
+          <div className="flex flex-col">
+            <div
+              onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
+              className={cn(
+                "relative shadow-lg",
+                mediaRadius,
+                isMine
+                  ? "shadow-sky-500/20"
+                  : "shadow-slate-200/60 dark:shadow-slate-900/40",
+              )}
+            >
+              {renderCtxBtn("absolute top-2 right-2")}
 
-          <div
-            onContextMenu={(e) => !isTemp && openCtx(e, message, isMine)}
-            className={cn(
-              "relative shadow-lg",
-              mediaRadius,
-              isMine
-                ? "shadow-sky-500/20"
-                : "shadow-slate-200/60 dark:shadow-slate-900/40",
-            )}
-          >
-            {/* Context menu trigger */}
-            {renderCtxBtn("absolute top-2 right-2")}
+              {/* ── Forwarded label (media bubble) ── */}
+              {isForwarded && (
+                <div
+                  className={cn(
+                    "flex items-center gap-1 text-[10px] px-3 pt-2 pb-0 select-none",
+                    isMine
+                      ? "bg-gradient-to-br from-sky-500 to-blue-600 text-white/50"
+                      : "bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-x border-t border-slate-200/80 dark:border-slate-700/80 rounded-t-2xl",
+                  )}
+                >
+                  <Forward className="h-3 w-3" />
+                  <span>Forwarded</span>
+                </div>
+              )}
 
-            {/* Reply preview */}
-            {message.replyTo && (
-              <div
-                className={cn(
-                  "px-2.5 pt-2.5",
-                  isMine
-                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-t-2xl"
-                    : "bg-white dark:bg-slate-800 rounded-t-2xl border-x border-t border-slate-200/80 dark:border-slate-700/80",
-                )}
-              >
-                <ReplyPreview
-                  replyTo={message.replyTo}
-                  myId={myId}
+              {/* Reply preview */}
+              {message.replyTo && (
+                <div
+                  className={cn(
+                    "px-2.5 pt-2.5",
+                    isMine
+                      ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-t-2xl"
+                      : "bg-white dark:bg-slate-800 rounded-t-2xl border-x border-t border-slate-200/80 dark:border-slate-700/80",
+                    // If forwarded label already rendered, don't re-round top
+                    isForwarded && "rounded-t-none",
+                  )}
+                >
+                  <ReplyPreview
+                    replyTo={message.replyTo}
+                    myId={myId}
+                    isMine={isMine}
+                    onClick={scrollToReply}
+                  />
+                </div>
+              )}
+
+              {/* Image grid */}
+              {hasMedia && (
+                <MessageImageGrid
+                  mediaAtts={mediaAtts}
+                  hasCaption={hasCaption}
                   isMine={isMine}
-                  onClick={scrollToReply}
-                />
-              </div>
-            )}
-
-            {/* Image grid */}
-            {hasMedia && (
-              <MessageImageGrid
-                mediaAtts={mediaAtts}
-                hasCaption={hasCaption}
-                isMine={isMine}
-                isTemp={isTemp}
-                progress={uploadProgress}
-                createdAt={message.createdAt}
-                timeFormat={timeFormat}
-                status={message.status}
-                isImportant={message.isImportant} // Pass isImportant to show inside image
-                onOpen={(index) => {
-                  setViewerIndex(index);
-                  setViewerOpen(true);
-                }}
-              />
-            )}
-
-            {/* Video player */}
-            {videoAtts.map((v: any, i: number) => {
-              const absoluteIndex = mediaAtts.findIndex((a) => a.url === v.url);
-              return (
-                <VideoPlayer
-                  key={i}
-                  url={v.url}
-                  publicId={v.publicId}
-                  name={v.name}
-                  size={v.size}
-                  isMine={isMine}
-                  disabled={isTemp}
-                  onExpand={() => {
-                    setViewerIndex(absoluteIndex >= 0 ? absoluteIndex : 0);
+                  isTemp={isTemp}
+                  progress={uploadProgress}
+                  createdAt={message.createdAt}
+                  timeFormat={timeFormat}
+                  status={message.status}
+                  isImportant={message.isImportant}
+                  onOpen={(index) => {
+                    setViewerIndex(index);
                     setViewerOpen(true);
                   }}
                 />
-              );
-            })}
+              )}
 
-            {/* Voice messages */}
-            {voiceAtts.map((a: any, i: number) => (
-              <VoicePlayer
-                key={i}
-                url={a.url}
-                name={a.name}
-                size={a.size}
-                isMine={isMine}
-                initialDuration={a.duration ?? null}
-              />
-            ))}
+              {/* Video player */}
+              {videoAtts.map((v: any, i: number) => {
+                const absoluteIndex = mediaAtts.findIndex(
+                  (a) => a.url === v.url,
+                );
+                return (
+                  <VideoPlayer
+                    key={i}
+                    url={v.url}
+                    publicId={v.publicId}
+                    name={v.name}
+                    size={v.size}
+                    isMine={isMine}
+                    disabled={isTemp}
+                    onExpand={() => {
+                      setViewerIndex(absoluteIndex >= 0 ? absoluteIndex : 0);
+                      setViewerOpen(true);
+                    }}
+                  />
+                );
+              })}
 
-            {/* Generic file / audio ─ enhanced card */}
-            {fileAtts.map((f: any, i: number) => (
-              <div
-                key={i}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-3 w-[256px]",
-                  isMine
-                    ? "bg-gradient-to-br from-sky-500 to-blue-600"
-                    : "bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80",
-                )}
-              >
-                {/* File icon box */}
+              {/* Voice messages */}
+              {voiceAtts.map((a: any, i: number) => (
+                <VoicePlayer
+                  key={i}
+                  url={a.url}
+                  name={a.name}
+                  size={a.size}
+                  isMine={isMine}
+                  initialDuration={a.duration ?? null}
+                />
+              ))}
+
+              {/* Generic file / audio */}
+              {fileAtts.map((f: any, i: number) => (
                 <div
+                  key={i}
                   className={cn(
-                    "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
+                    "flex items-center gap-3 px-3 py-3 w-[256px]",
                     isMine
-                      ? "bg-white/15 ring-1 ring-white/20"
-                      : "bg-slate-100 dark:bg-slate-700/80 ring-1 ring-slate-200 dark:ring-slate-600",
+                      ? "bg-gradient-to-br from-sky-500 to-blue-600"
+                      : "bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80",
                   )}
                 >
-                  <FileIcon mimeType={f.mimeType} className="h-5 w-5" />
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p
+                  <div
                     className={cn(
-                      "text-xs font-semibold truncate",
+                      "h-10 w-10 rounded-xl flex items-center justify-center shrink-0",
                       isMine
-                        ? "text-white"
-                        : "text-slate-700 dark:text-slate-100",
+                        ? "bg-white/15 ring-1 ring-white/20"
+                        : "bg-slate-100 dark:bg-slate-700/80 ring-1 ring-slate-200 dark:ring-slate-600",
                     )}
                   >
-                    {f.name}
-                  </p>
-                  <p
-                    className={cn(
-                      "text-[10px] mt-0.5 font-medium",
-                      isMine
-                        ? "text-white/55"
-                        : "text-slate-400 dark:text-slate-500",
-                    )}
-                  >
-                    {sizeLabel(f.size)}
-                    {f.mimeType && (
-                      <> · {f.mimeType.split("/")[1]?.toUpperCase()}</>
-                    )}
-                  </p>
-                </div>
-
-                <DownloadBtn url={f.url} name={f.name} isMine={isMine} />
-              </div>
-            ))}
-
-            {/* Caption bar */}
-            {hasCaption && (
-              <div
-                className={cn(
-                  "flex items-end justify-between gap-2 px-3 py-2.5",
-                  isMine
-                    ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
-                    : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
-                )}
-              >
-                <span
-                  className={cn(
-                    "text-sm flex-1 leading-relaxed",
-                    isMine
-                      ? "text-white"
-                      : "text-slate-700 dark:text-slate-100",
-                  )}
-                >
-                  {contentStr}
-                </span>
-                <div className="flex items-center gap-1 shrink-0">
-                  {/* 🌟 Star Icon inside Caption Footer */}
-                  {message.isImportant && (
-                    <Star
+                    <FileIcon mimeType={f.mimeType} className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
                       className={cn(
-                        "h-2.5 w-2.5 fill-current",
-                        isMine ? "text-amber-300" : "text-amber-400",
+                        "text-xs font-semibold truncate",
+                        isMine
+                          ? "text-white"
+                          : "text-slate-700 dark:text-slate-100",
                       )}
-                    />
-                  )}
-                  <span
-                    className={cn(
-                      "text-[10px] font-medium",
-                      isMine ? "text-white/55" : "text-slate-400",
-                    )}
-                  >
-                    {isTemp ? (
-                      "Sending…"
-                    ) : (
-                      <>
-                        {dateLabelFn(message.createdAt) && (
-                          <span
-                            className={cn(
-                              "mr-1",
-                              isMine
-                                ? "text-white/40"
-                                : "text-slate-300 dark:text-slate-500",
-                            )}
-                          >
-                            {dateLabelFn(message.createdAt)}
-                          </span>
-                        )}
-                        {timeFormatFn(message.createdAt!, timeFormat)}
-                      </>
-                    )}
-                  </span>
-                  {isMine && message.status && !isTemp && (
-                    <StatusIcon status={message.status} />
-                  )}
+                    >
+                      {f.name}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-[10px] mt-0.5 font-medium",
+                        isMine
+                          ? "text-white/55"
+                          : "text-slate-400 dark:text-slate-500",
+                      )}
+                    >
+                      {sizeLabel(f.size)}
+                      {f.mimeType && (
+                        <> · {f.mimeType.split("/")[1]?.toUpperCase()}</>
+                      )}
+                    </p>
+                  </div>
+                  <DownloadBtn url={f.url} name={f.name} isMine={isMine} />
                 </div>
-              </div>
-            )}
+              ))}
 
-            {/* Standalone time/status for Video/Voice/File when NO caption and NO images */}
-            {!hasCaption &&
-              mediaAtts.filter((a) => a.type === "image").length === 0 &&
-              (hasVoice || hasFiles || videoAtts.length > 0) && (
+              {/* Caption bar */}
+              {hasCaption && (
                 <div
                   className={cn(
-                    "flex justify-end items-center gap-1 px-3 py-1.5",
+                    "flex items-end justify-between gap-2 px-3 py-2.5",
                     isMine
                       ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
                       : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
                   )}
                 >
-                  {/* 🌟 Star Icon inside Standalone Footer */}
-                  {message.isImportant && (
-                    <Star
-                      className={cn(
-                        "h-2.5 w-2.5 fill-current",
-                        isMine ? "text-amber-300" : "text-amber-400",
-                      )}
-                    />
-                  )}
                   <span
                     className={cn(
-                      "text-[10px] font-medium",
-                      isMine ? "text-white/55" : "text-slate-400",
+                      "text-sm flex-1 leading-relaxed",
+                      isMine
+                        ? "text-white"
+                        : "text-slate-700 dark:text-slate-100",
                     )}
                   >
-                    {isTemp
-                      ? "Sending…"
-                      : message.createdAt && (
-                          <>
-                            {dateLabelFn(message.createdAt) && (
-                              <span
-                                className={cn(
-                                  "mr-1",
-                                  isMine
-                                    ? "text-white/40"
-                                    : "text-slate-300 dark:text-slate-500",
-                                )}
-                              >
-                                {dateLabelFn(message.createdAt)}
-                              </span>
-                            )}
-                            {timeFormatFn(message.createdAt, timeFormat)}
-                          </>
-                        )}
+                    {contentStr}
                   </span>
-                  {isMine && message.status && !isTemp && (
-                    <StatusIcon status={message.status} />
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {message.isImportant && (
+                      <Star
+                        className={cn(
+                          "h-2.5 w-2.5 fill-current",
+                          isMine ? "text-amber-300" : "text-amber-400",
+                        )}
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        "text-[10px] font-medium",
+                        isMine ? "text-white/55" : "text-slate-400",
+                      )}
+                    >
+                      {isTemp ? (
+                        "Sending…"
+                      ) : (
+                        <>
+                          {dateLabelFn(message.createdAt) && (
+                            <span
+                              className={cn(
+                                "mr-1",
+                                isMine
+                                  ? "text-white/40"
+                                  : "text-slate-300 dark:text-slate-500",
+                              )}
+                            >
+                              {dateLabelFn(message.createdAt)}
+                            </span>
+                          )}
+                          {timeFormatFn(message.createdAt!, timeFormat)}
+                        </>
+                      )}
+                    </span>
+                    {isMine && message.status && !isTemp && (
+                      <StatusIcon status={message.status} />
+                    )}
+                  </div>
                 </div>
               )}
+
+              {/* Standalone footer (voice/file/video, no caption, no image) */}
+              {!hasCaption &&
+                mediaAtts.filter((a) => a.type === "image").length === 0 &&
+                (hasVoice || hasFiles || videoAtts.length > 0) && (
+                  <div
+                    className={cn(
+                      "flex justify-end items-center gap-1 px-3 py-1.5",
+                      isMine
+                        ? "bg-gradient-to-br from-sky-500 to-blue-600 rounded-b-2xl rounded-br-sm"
+                        : "bg-white dark:bg-slate-800/90 rounded-b-2xl rounded-bl-sm border-x border-b border-slate-200/80 dark:border-slate-700/80",
+                    )}
+                  >
+                    {message.isImportant && (
+                      <Star
+                        className={cn(
+                          "h-2.5 w-2.5 fill-current",
+                          isMine ? "text-amber-300" : "text-amber-400",
+                        )}
+                      />
+                    )}
+                    <span
+                      className={cn(
+                        "text-[10px] font-medium",
+                        isMine ? "text-white/55" : "text-slate-400",
+                      )}
+                    >
+                      {isTemp
+                        ? "Sending…"
+                        : message.createdAt && (
+                            <>
+                              {dateLabelFn(message.createdAt) && (
+                                <span
+                                  className={cn(
+                                    "mr-1",
+                                    isMine
+                                      ? "text-white/40"
+                                      : "text-slate-300 dark:text-slate-500",
+                                  )}
+                                >
+                                  {dateLabelFn(message.createdAt)}
+                                </span>
+                              )}
+                              {timeFormatFn(message.createdAt, timeFormat)}
+                            </>
+                          )}
+                    </span>
+                    {isMine && message.status && !isTemp && (
+                      <StatusIcon status={message.status} />
+                    )}
+                  </div>
+                )}
+            </div>
+
+            {/* ── Reactions (below media bubble) ── */}
+            {hasReactions && (
+              <ReactionBar reactions={reactions} myId={myId} isMine={isMine} />
+            )}
           </div>
         </div>
       </>
@@ -1138,124 +1232,130 @@ export default function MessageBubble({ message }: { message: Message }) {
           "max-w-[80%]",
         )}
       >
-        {/* Note: Absolute top star badge removed from here */}
-
-        <div
-          onContextMenu={(e) => !isDeleted && openCtx(e, message, isMine)}
-          className={cn(
-            "relative cursor-context-menu select-text leading-relaxed",
-            "transition-all duration-150",
-            "shadow-md",
-            fontStyle,
-            textSize,
-            textRadius,
-            compactMode ? "px-3 py-1.5" : "px-4 py-2.5",
-            isMine
-              ? [
-                  "bg-gradient-to-br from-sky-500 to-blue-600 text-white",
-                  "shadow-sky-500/25",
-                  // subtle inner top-highlight
-                  "ring-1 ring-white/10",
-                ].join(" ")
-              : [
-                  "bg-white text-slate-700",
-                  "border border-slate-200/80",
-                  "shadow-slate-200/60",
-                  "dark:bg-slate-800/90 dark:text-slate-100 dark:border-slate-700/80 dark:shadow-slate-900/40",
-                ].join(" "),
-            isDeleted && "opacity-60 italic",
-            // hover lift
-            "hover:shadow-lg hover:-translate-y-[1px]",
-          )}
-        >
-          {/* Context menu trigger */}
-          {!isDeleted && (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openCtx(e, message, isMine);
-              }}
-              className={cn(
-                "absolute top-1.5 right-1.5 p-0.5 rounded-full z-10 transition-all duration-200",
-                "opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                isMine
-                  ? "bg-white/10 text-white hover:bg-white/25"
-                  : "bg-slate-100 dark:bg-slate-700/80 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600",
-              )}
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          )}
-
-          {message.replyTo && !isDeleted && (
-            <ReplyPreview
-              replyTo={message.replyTo}
-              myId={myId}
-              isMine={isMine}
-              onClick={scrollToReply}
-            />
-          )}
-
-          <div className="flex flex-col gap-0.5 pr-2">
-            {isDeleted ? (
-              <span className="flex items-center gap-1.5 text-xs opacity-70">
-                <Ban className="h-3.5 w-3.5 shrink-0" />
-                This message was deleted
-              </span>
-            ) : (
-              <>
-                <LinkPreviewCard content={contentStr} isMine={isMine} />
-                <span className="whitespace-pre-wrap break-words mt-0.5 leading-[1.55]">
-                  {contentStr}
-                </span>
-              </>
+        <div className="flex flex-col">
+          <div
+            onContextMenu={(e) => !isDeleted && openCtx(e, message, isMine)}
+            className={cn(
+              "relative cursor-context-menu select-text leading-relaxed",
+              "transition-all duration-150",
+              "shadow-md",
+              fontStyle,
+              textSize,
+              textRadius,
+              compactMode ? "px-3 py-1.5" : "px-4 py-2.5",
+              isMine
+                ? [
+                    "bg-gradient-to-br from-sky-500 to-blue-600 text-white",
+                    "shadow-sky-500/25",
+                    "ring-1 ring-white/10",
+                  ].join(" ")
+                : [
+                    "bg-white text-slate-700",
+                    "border border-slate-200/80",
+                    "shadow-slate-200/60",
+                    "dark:bg-slate-800/90 dark:text-slate-100 dark:border-slate-700/80 dark:shadow-slate-900/40",
+                  ].join(" "),
+              isDeleted && "opacity-60 italic",
+              "hover:shadow-lg hover:-translate-y-[1px]",
             )}
-
-            {/* Meta row */}
-            <div
-              className={cn(
-                "flex items-center justify-end gap-1 select-none",
-                compactMode ? "mt-0" : "mt-1",
-              )}
-            >
-              {/* 🌟 Star Icon inside Text Footer */}
-              {message.isImportant && (
-                <Star
-                  className={cn(
-                    "h-2.5 w-2.5 fill-current",
-                    isMine ? "text-amber-300" : "text-amber-400",
-                  )}
-                />
-              )}
-              {message.is_edited && !isDeleted && (
-                <span
-                  className={cn(
-                    "text-[9px] uppercase font-bold tracking-widest",
-                    isMine ? "text-white/40" : "text-slate-400",
-                  )}
-                >
-                  edited
-                </span>
-              )}
-              <span
+          >
+            {/* Context menu trigger */}
+            {!isDeleted && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openCtx(e, message, isMine);
+                }}
                 className={cn(
-                  "text-[10px] font-medium tabular-nums",
+                  "absolute top-1.5 right-1.5 p-0.5 rounded-full z-10 transition-all duration-200",
+                  "opacity-100 md:opacity-0 md:group-hover:opacity-100",
                   isMine
-                    ? "text-white/55"
-                    : "text-slate-400 dark:text-slate-500",
+                    ? "bg-white/10 text-white hover:bg-white/25"
+                    : "bg-slate-100 dark:bg-slate-700/80 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600",
                 )}
               >
-                {isTemp
-                  ? "Sending…"
-                  : message.createdAt &&
-                    timeFormatFn(message.createdAt, timeFormat)}
-              </span>
-              {isMine && message.status && !isTemp && (
-                <StatusIcon status={message.status} />
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            )}
+
+            <div className="flex flex-col gap-0.5 pr-2">
+              {/* ── Forwarded label (text bubble) ── */}
+              {isForwarded && !isDeleted && <ForwardedLabel isMine={isMine} />}
+
+              {/* Reply preview */}
+              {message.replyTo && !isDeleted && (
+                <ReplyPreview
+                  replyTo={message.replyTo}
+                  myId={myId}
+                  isMine={isMine}
+                  onClick={scrollToReply}
+                />
               )}
+
+              {isDeleted ? (
+                <span className="flex items-center gap-1.5 text-xs opacity-70">
+                  <Ban className="h-3.5 w-3.5 shrink-0" />
+                  This message was deleted
+                </span>
+              ) : (
+                <>
+                  <LinkPreviewCard content={contentStr} isMine={isMine} />
+                  <span className="whitespace-pre-wrap break-words mt-0.5 leading-[1.55]">
+                    {contentStr}
+                  </span>
+                </>
+              )}
+
+              {/* Meta row */}
+              <div
+                className={cn(
+                  "flex items-center justify-end gap-1 select-none",
+                  compactMode ? "mt-0" : "mt-1",
+                )}
+              >
+                {message.isImportant && (
+                  <Star
+                    className={cn(
+                      "h-2.5 w-2.5 fill-current",
+                      isMine ? "text-amber-300" : "text-amber-400",
+                    )}
+                  />
+                )}
+                {message.is_edited && !isDeleted && (
+                  <span
+                    className={cn(
+                      "text-[9px] uppercase font-bold tracking-widest",
+                      isMine ? "text-white/40" : "text-slate-400",
+                    )}
+                  >
+                    edited
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    "text-[10px] font-medium tabular-nums",
+                    isMine
+                      ? "text-white/55"
+                      : "text-slate-400 dark:text-slate-500",
+                  )}
+                >
+                  {isTemp
+                    ? "Sending…"
+                    : message.createdAt &&
+                      timeFormatFn(message.createdAt, timeFormat)}
+                </span>
+                {isMine && message.status && !isTemp && (
+                  <StatusIcon status={message.status} />
+                )}
+              </div>
             </div>
           </div>
+
+          {/* ── Reactions (below text bubble) ── */}
+          {hasReactions && (
+            <ReactionBar reactions={reactions} myId={myId} isMine={isMine} />
+          )}
         </div>
       </div>
     </>

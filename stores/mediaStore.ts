@@ -204,7 +204,7 @@ function xhrUpload(
 
 //  Single file upload
 
-// ─── Single file upload ───────────────────────────────────────────────────────
+//  Single file upload
 
 export const getSafeMimeType = (file: File): string => {
   if (file.type) return file.type;
@@ -230,14 +230,18 @@ async function uploadSingle(
   onProgress?: (pct: number) => void,
 ): Promise<Attachment & { provider: StorageProvider }> {
   const { file, type } = media;
-  
+
   // 🌟 ঠিক আপলোডের আগে নিরাপদ Mime Type বের করে নিলাম
   const safeMimeType = getSafeMimeType(file);
 
   if (type === "image") {
     const form = new FormData();
     form.append("media", file);
-    const data = await xhrUpload(`${API_URL}/uploads/chat-image`, form, onProgress);
+    const data = await xhrUpload(
+      `${API_URL}/uploads/chat-image`,
+      form,
+      onProgress,
+    );
     return {
       url: data.url,
       publicId: data.publicId,
@@ -291,13 +295,13 @@ async function uploadSingle(
     fileSize: Number(file.size),
   });
   const { uploadUrl, path, publicUrl } = signRes.data;
-  
+
   await xhrUpload(uploadUrl, file, onProgress, {
     method: "PUT",
     skipCredentials: true,
     extraHeaders: { "Content-Type": safeMimeType }, // 👈 এখানে Supabase-কে টাইপ বলে দিলাম
   });
-  
+
   return {
     url: publicUrl,
     path,

@@ -672,12 +672,12 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       }));
     });
 
-   // ==========================================
+    // ==========================================
     // TYPING INDICATORS
     // ==========================================
     socket.on("show_typing", (data: any) => {
       const { activeContact } = get();
-      
+
       if (data.senderId === activeContact?._id) {
         set({ isTyping: true });
       }
@@ -685,7 +685,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
 
     socket.on("hide_typing", (data: any) => {
       const { activeContact } = get();
-      
+
       if (data.senderId === activeContact?._id) {
         set({ isTyping: false });
       }
@@ -698,7 +698,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     const { socket, activeContact, _typingTimeout } = get();
     if (_typingTimeout) clearTimeout(_typingTimeout);
     set({ isTyping: false });
-    // 🌟 1. Jodi aage theke kono chat open thake, tahole sei room theke leave koro
     if (activeContact?.customChatId) {
       socket?.emit("leave_chat", activeContact.customChatId);
     }
@@ -999,18 +998,41 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     }
   },
 
-  handleForward: (contactId: string) => {
+  handleForward: async (contactId: string) => {
     const { forwardMsg, socket, activeContact, contacts } = get();
     const myId = useAuthStore.getState().myId;
     if (!forwardMsg || !myId) return;
 
     const targetContact = contacts.find((c) => c._id === contactId);
+    const friendPublicKey = targetContact?.publicKey;
+    const chatId = targetContact?.customChatId;
     const content = forwardMsg.content;
+    if(!chatId){
+      console.error("Chat ID is missing for the target contact.");
+      return;
+    }
+
+
+    const encryptedContent = await secureEncryptMessage(
+      content,
+      chatId,
+      friendPublicKey!,
+      "text",
+    );
+    if (!encryptedContent) {
+      console.error("Encryption failed, message not sent.");
+      return;
+    }
     const now = new Date().toISOString();
 
     socket?.emit(
       "send_message",
-      { receiverId: contactId, content, isForwarded: true },
+      {
+        receiverId: contactId,
+        content: encryptedContent,
+        is_forwarded: true,
+        chatRoomId: targetContact?.customChatId,
+      },
       (res: any) => {
         if (res?.success) {
           const sentMsg: Message = {
@@ -1151,12 +1173,20 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   },
 
   closeNewChat: () => {
-    clearTimeout(get()._previewTimeout);
+    const timeoutId = get()._previewTimeout;
+
+    if (
+      timeoutId &&
+      (typeof timeoutId === "number" ||
+        typeof (timeoutId as any).close === "function")
+    ) {
+      clearTimeout(timeoutId as any);
+    }
+
     set({
       showNewChat: false,
       newChatId: "",
-      newChatPreview: [],
-      newChatError: "",
+      _previewTimeout: undefined,
     });
   },
 

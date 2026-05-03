@@ -17,6 +17,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "next-themes";
 import { useAppearanceStore } from "@/stores/appearanceStore";
 import { cn } from "@/lib/utils";
+import { useChatSettingsStore } from "@/stores/chatSettingsStore";
 
 const appStore =
   typeof window !== "undefined"
@@ -109,6 +110,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isPublic = publicPaths.includes(pathname);
   const queryClient = getQueryClient();
+
+  // load all chat settings on app start to avoid later lags when user opens a chat for the first time
+  const isLoadedSettings = useChatSettingsStore((s) => s.isLoaded);
+  const loadAllSettings = useChatSettingsStore((s) => s.loadAll);
+
+  useEffect(() => {
+    loadAllSettings();
+  }, [loadAllSettings]);
+
 
   const [maxAge, setMaxAge] = useState<number>(DAY * 7);
 

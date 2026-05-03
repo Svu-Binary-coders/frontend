@@ -33,6 +33,10 @@ import { ActionTooltip } from "../reuse/ActionTooltip";
 import Image from "next/image";
 
 import { MediaViewer } from "@/components/chat/media/MediaViewer";
+import {
+  useChatSettings,
+  useChatSettingsStore,
+} from "@/stores/chatSettingsStore";
 
 // --- Types ---
 interface UserProfile {
@@ -85,9 +89,8 @@ const fetchUserProfile = async (userId: string): Promise<UserProfile> => {
   return res.data.user;
 };
 
-// Real API for Media
 const fetchSharedMedia = async (chatId: string): Promise<SharedMedia[]> => {
-  const { data } = await api.get(`${API_URL}/chats/${chatId}/attachments`);
+  const { data } = await api.get(`/chats/${chatId}/attachments`);
   return data.attachments || [];
 };
 
@@ -118,7 +121,8 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
   const isPinned = contactStoreData?.isPinned || false;
   const isFavorite = contactStoreData?.isFavorite || false;
   const customChatId = contactStoreData?.customChatId;
-
+  const chatSettings = useChatSettings(customChatId);
+  const updateSettings = useChatSettingsStore((s) => s.updateSettings);
   // User Profile Query
   const {
     data: user,
@@ -543,6 +547,92 @@ export default function ProfilePanel({ userId, open, onClose }: Props) {
                     last
                   />
                 )}
+              </PanelSection>
+
+              {/* user settings per chat view */}
+              <PanelSection>
+                <div className="px-5 py-4">
+                  <p className="text-[12px] text-blue-600 dark:text-blue-400 font-semibold mb-1.5 uppercase tracking-wider">
+                    Chat Settings
+                  </p>
+                </div>
+
+                {/* 📍 Settings List: এখানে আমরা টগল বা চেকবক্স বসাবো */}
+                <div className="flex flex-col gap-4 px-5 pb-4">
+                  {/* ১. Copy Text Permission */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                      Allow Copy Text
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={chatSettings?.isCopyEnabled ?? true}
+                      onChange={(e) => {
+                        if (customChatId) {
+                          updateSettings(customChatId, {
+                            isCopyEnabled: e.target.checked,
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 cursor-pointer accent-blue-600"
+                    />
+                  </div>
+
+                  {/* Screenshot Blur Permission */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                      Block Screenshots (Blur)
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={chatSettings?.isScreenShotBlur ?? false}
+                      onChange={(e) => {
+                        if (customChatId) {
+                          updateSettings(customChatId, {
+                            isScreenShotBlur: e.target.checked,
+                          });
+                        }
+                      }}
+                      className="w-4 h-4 cursor-pointer accent-blue-600"
+                    />
+                  </div>
+
+                  {/* ৩. Disappearing Timer (Dropdown) */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700 dark:text-slate-300 font-medium">
+                      Auto Delete Messages
+                    </span>
+                    <select
+                      value={chatSettings?.disappearingTimer || ""}
+                      onChange={(e) => {
+                        if (customChatId) {
+                          const val = e.target.value
+                            ? Number(e.target.value)
+                            : null;
+                          updateSettings(customChatId, {
+                            disappearingTimer: val,
+                          });
+                        }
+                      }}
+                      className="text-sm p-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none cursor-pointer border border-slate-200 dark:border-slate-700"
+                    >
+                      <option value="">Off (Keep)</option>
+                      <option value="60">1 Minute</option>
+                      <option value="300">5 Minutes</option>
+                      <option value="3600">1 Hour</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* (Optional) শুধু দেখানোর জন্য যে সেটিং কাজ করছে */}
+                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Status:{" "}
+                    {chatSettings?.isCopyEnabled
+                      ? "Copy Enabled"
+                      : "Copy Blocked"}
+                  </p>
+                </div>
               </PanelSection>
 
               {/* User Action Section */}
