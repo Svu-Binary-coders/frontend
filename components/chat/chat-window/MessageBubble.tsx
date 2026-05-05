@@ -45,23 +45,112 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-// ─── Type fix: reactions can be array (from DB) or object (normalized) ───────
-// DB দেয়: reactions: []  অথবা  reactions: [{emoji, userIds}]
-// Type এ আমরা normalize করে নিই: { "👍": ["userId1"] }
 type ReactionMap = { [emoji: string]: string[] };
 
 function normalizeReactions(raw: any): ReactionMap {
   if (!raw) return {};
   // Already object map
   if (!Array.isArray(raw)) return raw as ReactionMap;
-  // Array of { emoji, userIds } or { emoji, userId }
+
   const map: ReactionMap = {};
+
   for (const item of raw) {
-    if (item?.emoji) {
-      map[item.emoji] = item.userIds ?? (item.userId ? [item.userId] : []);
+    const emoji = item?.reaction || item?.emoji;
+
+    if (emoji) {
+      if (!map[emoji]) {
+        map[emoji] = [];
+      }
+
+      // userId থাকলে সেটা পুশ করবে (Duplicate চেক করে)
+      if (item.userId && !map[emoji].includes(item.userId)) {
+        map[emoji].push(item.userId);
+      }
+      // যদি userIds (অ্যারে) হিসেবে আসে
+      else if (Array.isArray(item.userIds)) {
+        item.userIds.forEach((id: string) => {
+          if (!map[emoji].includes(id)) {
+            map[emoji].push(id);
+          }
+        });
+      }
     }
   }
+
   return map;
+}
+
+// ─── Reaction Details Modal ──────────────────────────────────────────────────
+function ReactionDetailsModal({
+  reactionMap,
+  onClose,
+}: {
+  reactionMap: ReactionMap;
+  onClose: () => void;
+}) {
+  const { contacts } = useChatStore();
+  const { myId } = useAuthStore();
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-slate-800 rounded-2xl w-80 max-h-[400px] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()} // ভেতরের ক্লিকে যেন মডাল বন্ধ না হয়
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+          <h3 className="font-semibold text-slate-800 dark:text-slate-100">
+            Reactions
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+          >
+            <X className="w-4 h-4 text-slate-500 dark:text-slate-300" />
+          </button>
+        </div>
+
+        {/* List of Users */}
+        <div className="overflow-y-auto p-2 custom-scrollbar">
+          {Object.entries(reactionMap).map(([emoji, userIds]) =>
+            userIds.map((userId) => {
+              // স্টোর থেকে ইউজারের ডেটা বের করা
+              const user = contacts.find((c) => c._id === userId);
+              const name =
+                userId === myId ? "You" : user?.name || "Unknown User";
+              const avatar =
+                user?.avatar ||
+                "https://cdn-icons-png.flaticon.com/512/149/149071.png"; // ডিফল্ট ছবি
+
+              return (
+                <div
+                  key={userId + emoji}
+                  className="flex items-center justify-between p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-xl transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={avatar}
+                      alt={name}
+                      className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                    />
+                    <span className="font-medium text-sm text-slate-700 dark:text-slate-200">
+                      {name}
+                    </span>
+                  </div>
+                  <div className="text-2xl bg-slate-100 dark:bg-slate-700 w-10 h-10 flex items-center justify-center rounded-full">
+                    {emoji}
+                  </div>
+                </div>
+              );
+            }),
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 //  Global animation styles
@@ -140,10 +229,12 @@ function ReactionBar({
   reactions,
   myId,
   isMine,
+  onClick,
 }: {
   reactions: ReactionMap;
   myId: string;
   isMine: boolean;
+  onClick: () => void;
 }) {
   const entries = Object.entries(reactions).filter(
     ([, users]) => users.length > 0,
@@ -152,8 +243,12 @@ function ReactionBar({
 
   return (
     <div
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       className={cn(
-        "flex flex-wrap gap-1 mt-1",
+        "flex flex-wrap gap-1 mt-1 cursor-pointer hover:opacity-80 transition-opacity",
         isMine ? "justify-end" : "justify-start",
       )}
     >
@@ -824,7 +919,7 @@ export default function MessageBubble({ message }: { message: Message }) {
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
-
+  const [showReactionModal, setShowReactionModal] = useState(false);
   const isMine = message.senderId === myId;
   const isDeleted = message.is_deleted_for_everyone;
   const isTemp = (message as any).isTemp === true;
@@ -1209,7 +1304,12 @@ export default function MessageBubble({ message }: { message: Message }) {
 
             {/* ── Reactions (below media bubble) ── */}
             {hasReactions && (
-              <ReactionBar reactions={reactions} myId={myId} isMine={isMine} />
+              <ReactionBar
+                reactions={reactions}
+                myId={myId}
+                isMine={isMine}
+                onClick={() => setShowReactionModal(true)}
+              />
             )}
           </div>
         </div>
@@ -1354,10 +1454,21 @@ export default function MessageBubble({ message }: { message: Message }) {
 
           {/* ── Reactions (below text bubble) ── */}
           {hasReactions && (
-            <ReactionBar reactions={reactions} myId={myId} isMine={isMine} />
+            <ReactionBar
+              reactions={reactions}
+              myId={myId}
+              isMine={isMine}
+              onClick={() => setShowReactionModal(true)}
+            />
           )}
         </div>
       </div>
+      {showReactionModal && (
+        <ReactionDetailsModal
+          reactionMap={reactions}
+          onClose={() => setShowReactionModal(false)}
+        />
+      )}
     </>
   );
 }

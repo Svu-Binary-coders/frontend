@@ -9,47 +9,19 @@ import ProfilePanel from "@/components/profile/userProfile";
 import { useChatStore } from "@/stores/chatStore";
 import { useChatSettings } from "@/stores/chatSettingsStore";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 export default function ChatWindow() {
-  const { activeContact, contextMenu } = useChatStore();
+  const { activeContact } = useChatStore();
   const [showProfile, setShowProfile] = useState(false);
-
-  const [isBlurred, setIsBlurred] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
 
   const chatId = activeContact?.customChatId ?? activeContact?._id ?? "";
   const chatSettings = useChatSettings(chatId);
-  const isProtected = !!chatSettings?.isScreenShotBlur;
-  const isShowWatermark = !!chatSettings?.isScreenShotBlur;
-  // screensort protctions
+  const isProtected = !!chatSettings?.isScreenShotBlur; // বা আপনার লজিক অনুযায়ী
+
+  // Keyboard screenshot attempts (শুধু ওয়ার্নিং দেবে, স্ক্রিন ব্লার করবে না)
   useEffect(() => {
-    if (!isProtected) {
-      // Avoid calling setState synchronously inside effect to prevent cascading renders
-      // Schedule state update on next tick
-      const t = window.setTimeout(() => setIsBlurred(false), 0);
-      return () => window.clearTimeout(t);
-    }
+    if (!isProtected) return;
 
-    const blur = () => {
-      if (useChatStore.getState().contextMenu) return;
-      setIsBlurred(true);
-    };
-
-    const unblur = () => setIsBlurred(false);
-
-    // Tab switch
-    const handleVisibility = () => {
-      if (document.hidden) blur();
-      else unblur();
-    };
-
-    // Window focus/blur
-    window.addEventListener("blur", blur);
-    window.addEventListener("focus", unblur);
-    document.addEventListener("visibilitychange", handleVisibility);
-
-    // Keyboard screenshot attempts
     const onKey = (e: KeyboardEvent) => {
       const isScreenshot =
         e.key === "PrintScreen" ||
@@ -57,29 +29,15 @@ export default function ChatWindow() {
         (e.metaKey && e.shiftKey && e.key === "4"); // Mac
 
       if (isScreenshot) {
-        blur();
-        toast.warning("Screenshot blocked 🛡️");
-        setTimeout(unblur, 2000);
+        toast.warning("Screenshot attempt detected 🛡️");
       }
     };
     window.addEventListener("keydown", onKey);
 
-    return () => {
-      window.removeEventListener("blur", blur);
-      window.removeEventListener("focus", unblur);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [isProtected]);
 
-  useEffect(() => {
-    if (isProtected && !contextMenu && !isHovering && !document.hidden) {
-      const t = window.setTimeout(() => setIsBlurred(true), 0);
-      return () => window.clearTimeout(t);
-    }
-  }, [contextMenu, isHovering, isProtected]);
-
-  // copy block
+  // Copy Block
   const handleCopy = (e: React.ClipboardEvent) => {
     if (isProtected && !chatSettings?.isCopyEnabled) {
       e.preventDefault();
@@ -87,13 +45,14 @@ export default function ChatWindow() {
     }
   };
 
+  // Right-click Block
   const handleContextMenu = (e: React.MouseEvent) => {
     if (isProtected && !chatSettings?.isCopyEnabled) {
       e.preventDefault();
     }
   };
 
-  // if no conversation is selected
+  // If no conversation is selected
   if (!activeContact) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-slate-50 dark:bg-slate-950">
@@ -113,47 +72,28 @@ export default function ChatWindow() {
   }
 
   // ================================
-  // ✅ MAIN UI
+  // ✅ MAIN UI (Without Blur)
   // ================================
   return (
-    <div
-      className="relative flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950"
-      onMouseEnter={() => {
-        setIsHovering(true);
-        setIsBlurred(false);
-      }}
-      onMouseMove={() => {
-        if (isBlurred) setIsBlurred(false);
-        if (!isHovering) setIsHovering(true);
-      }}
-      onMouseLeave={() => {
-        setIsHovering(false);
-        if (isProtected && !useChatStore.getState().contextMenu) {
-          setIsBlurred(true);
-        }
-      }}
-    >
+    <div className="relative flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
       <ChatHeader onProfileClick={() => setShowProfile(true)} />
 
-      {/* 🔒 PROTECTION OVERLAY */}
-      {isProtected && isBlurred && (
-        <div className="absolute inset-0 z-50 backdrop-blur-xl bg-black/40 flex flex-col items-center justify-center gap-3 pointer-events-none">
-          <div className="text-4xl">🛡️</div>
-          <p className="text-white text-lg font-semibold">Protected Content</p>
-        </div>
+      {/* 🛡️ REPEATING WATERMARK (Always Visible) */}
+      {isProtected && activeContact?.name && (
+        <div
+          className="absolute inset-0 pointer-events-none z-[45] select-none"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='220' height='150' xmlns='http://www.w3.org/2000/svg'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='rgba(148, 163, 184, 0.08)' font-size='22' font-family='sans-serif' font-weight='bold' transform='rotate(-30, 110, 75)'%3E${encodeURIComponent(
+              activeContact.name
+            )}%3C/text%3E%3C/svg%3E")`,
+            backgroundRepeat: "repeat",
+          }}
+        />
       )}
 
-      {isProtected && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-500 opacity-5 text-6xl font-black pointer-events-none z-10 select-none">
-          {activeContact?.name}
-        </div>
-      )}
-
+      {/* CHAT LIST AREA */}
       <div
-        className={cn(
-          "flex-1 flex flex-col overflow-hidden transition-all duration-300",
-          isProtected && isBlurred && "blur-md select-none",
-        )}
+        className="flex-1 flex flex-col overflow-hidden"
         onCopy={handleCopy}
         onContextMenu={handleContextMenu}
       >
@@ -162,7 +102,7 @@ export default function ChatWindow() {
 
       <InputBar />
 
-      {/* PROFILE */}
+      {/* PROFILE OVERLAY */}
       {showProfile && (
         <div
           className="absolute inset-0 z-10"

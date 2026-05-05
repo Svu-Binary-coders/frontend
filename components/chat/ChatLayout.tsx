@@ -66,7 +66,6 @@ export default function ChatLayout() {
           </div>
         ) : (
           <>
-            {/* 🔴 Left Sidebar Panel (Chat List, Calls, etc.) */}
             <div
               className={cn(
                 "flex shrink-0 border-r border-slate-100 dark:border-slate-800 transition-all duration-200",

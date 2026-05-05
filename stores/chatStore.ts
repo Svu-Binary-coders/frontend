@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
 import { secureDecryptMessage, secureEncryptMessage } from "@/helper/E2EHelper";
 import { clearTimeout } from "timers";
+import { useChatSettingsStore } from "./chatSettingsStore";
 
 // ==========================================
 // HELPERS
@@ -187,6 +188,7 @@ interface ChatStore {
   newChatPreview: NewChatPreview[];
   contextMenu: ContextMenuState | null;
   editingMsg: Message | null;
+  reaction: Message | null;
   replyTo: Message | null;
   forwardMsg: Message | null;
   socket: Socket | null;
@@ -199,6 +201,7 @@ interface ChatStore {
   setShowNewChat: (v: boolean) => void;
   setContextMenu: (v: ContextMenuState | null) => void;
   setForwardMsg: (v: Message | null) => void;
+  handeleAddReaction: (msg: Message, reaction: string) => void;
   setActiveView: (view: ActiveView) => void;
   setShowEmojiPicker: (v: boolean) => void;
   addOptimisticMessage: (msg: any) => void;
@@ -241,7 +244,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
   socket: null,
   _typingTimeout: undefined,
   _previewTimeout: undefined,
-
+  reaction: null,
   setMsgInput: (v) => set({ msgInput: v }),
   setShowNewChat: (v) => set({ showNewChat: v }),
   setContextMenu: (v) => set({ contextMenu: v }),
@@ -617,6 +620,58 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         }
       },
     );
+    socket.on(
+      "reaction_added_ack",
+      ({
+        messageId,
+        reaction,
+        senderId,
+      }: {
+        messageId: string;
+        reaction: string;
+        senderId: string;
+      }) => {
+        const chatId = get().activeContact?.customChatId;
+
+        const applyReceivedReaction = (currentMsg: Message) => {
+          const currentReactions = Array.isArray(currentMsg.reactions)
+            ? [...currentMsg.reactions]
+            : [];
+
+          const existingReactionIndex = currentReactions.findIndex(
+            (r: any) =>
+              r.userId === senderId ||
+              (r.userIds && r.userIds.includes(senderId)),
+          );
+
+          let oldReaction = null;
+
+          if (existingReactionIndex >= 0) {
+            oldReaction = currentReactions[existingReactionIndex].emoji;
+            currentReactions.splice(existingReactionIndex, 1);
+          }
+
+          if (oldReaction !== reaction) {
+            const userIds = [senderId];
+            currentReactions.push({ emoji: reaction, userIds });
+          }
+
+          return { ...currentMsg, reactions: currentReactions };
+        };
+
+        // ১. Zustand State আপডেট
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m._id === messageId ? applyReceivedReaction(m) : m,
+          ),
+        }));
+
+        // ২. React Query Cache আপডেট
+        updateAllPagesCache(chatId, (m) =>
+          m._id === messageId ? applyReceivedReaction(m) : m,
+        );
+      },
+    );
 
     // STAR ACK
     socket.on(
@@ -834,6 +889,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
       updateMessagesCache(chatId, (old) => [...old, tempMsg]);
 
+      
       socket?.emit(
         "send_message",
         {
@@ -1007,40 +1063,65 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     const friendPublicKey = targetContact?.publicKey;
     const chatId = targetContact?.customChatId;
     const content = forwardMsg.content;
-    if(!chatId){
+
+    if (!chatId) {
       console.error("Chat ID is missing for the target contact.");
       return;
     }
 
-
-    const encryptedContent = await secureEncryptMessage(
-      content,
-      chatId,
-      friendPublicKey!,
-      "text",
-    );
-    if (!encryptedContent) {
-      console.error("Encryption failed, message not sent.");
-      return;
+    let encryptedContent = "";
+    if (content?.trim()) {
+      const encryptedResult = await secureEncryptMessage(
+        content,
+        chatId,
+        friendPublicKey!,
+        "text",
+      );
+      if (!encryptedResult) {
+        console.error("Encryption failed");
+        return;
+      }
+      encryptedContent = encryptedResult;
     }
+
     const now = new Date().toISOString();
+
+    const attachmentData =
+      forwardMsg.attachments && forwardMsg.attachments.length > 0
+        ? forwardMsg.attachments.map((item: any) => ({
+            url: item.url,
+            type: item.type,
+            mimeType: item.mimeType,
+            name: item.name,
+            size: item.size,
+            duration: item.duration ?? null,
+            provider: item.provider,
+            path: item.path,
+            publicId: item.publicId ?? null,
+          }))
+        : undefined;
 
     socket?.emit(
       "send_message",
       {
         receiverId: contactId,
-        content: encryptedContent,
+        content: encryptedContent || "",
         is_forwarded: true,
-        chatRoomId: targetContact?.customChatId,
+        chatRoomId: chatId,
+        attachment: attachmentData,
+        mediaType: attachmentData?.[0]?.type ?? undefined,
       },
       (res: any) => {
         if (res?.success) {
           const sentMsg: Message = {
             ...res.data,
             senderId: myId,
+            content, // plain text for UI
             status: MessageStatus.SENT,
-            isForwarded: true,
+            is_forwarded: true,
+            attachments: forwardMsg.attachments ?? [],
           };
+
           set((s) => ({
             messages:
               activeContact?._id === contactId
@@ -1049,7 +1130,13 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
             contacts: s.contacts
               .map((c) =>
                 c._id === contactId
-                  ? { ...c, lastMessage: { content, createdAt: now } }
+                  ? {
+                      ...c,
+                      lastMessage: {
+                        content: getAttachmentPreview(sentMsg) || content,
+                        createdAt: now,
+                      },
+                    }
                   : c,
               )
               .sort(
@@ -1058,33 +1145,85 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
                   new Date(a.lastMessage?.createdAt || 0).getTime(),
               ),
           }));
+
           if (targetContact?.customChatId) {
             updateMessagesCache(targetContact.customChatId, (old) => [
               ...old,
               sentMsg,
             ]);
           }
-          getQueryClient().setQueryData(
-            ["contacts"],
-            (old: Contact[] | undefined) => {
-              if (!old) return old;
-              return old
-                .map((c) =>
-                  c._id === contactId
-                    ? { ...c, lastMessage: { content, createdAt: now } }
-                    : c,
-                )
-                .sort(
-                  (a, b) =>
-                    new Date(b.lastMessage?.createdAt || 0).getTime() -
-                    new Date(a.lastMessage?.createdAt || 0).getTime(),
-                );
-            },
-          );
         }
       },
     );
+
     set({ forwardMsg: null });
+  },
+
+  handeleAddReaction: (msg: Message, reaction: string) => {
+    const { socket, activeContact } = get();
+    const myId = useAuthStore.getState().myId;
+    const chatId = activeContact?.customChatId;
+
+    if (!chatId || !myId) return;
+
+    // ১. Optimistic Update Helper (Zustand এবং React Query উভয়ের জন্য)
+    const toggleReactionLogic = (currentMsg: Message) => {
+      // ডাটাবেসের ফরম্যাটের সাথে মিল রেখে কপি তৈরি করা
+      const currentReactions = Array.isArray(currentMsg.reactions)
+        ? [...currentMsg.reactions]
+        : [];
+
+      // ১. ইউজারের আগের কোনো রিঅ্যাকশন আছে কি না সেটা খোঁজা
+      const existingReactionIndex = currentReactions.findIndex(
+        (r: any) =>
+          r.userId === myId || (r.userIds && r.userIds.includes(myId)),
+      );
+
+      let oldReaction = null;
+
+      // যদি আগে থেকে কোনো রিঅ্যাকশন থাকে, তবে সেটা রিমুভ করে দেব
+      if (existingReactionIndex >= 0) {
+        const existing = currentReactions[existingReactionIndex] as any;
+        oldReaction = existing.reaction || existing.emoji;
+        currentReactions.splice(existingReactionIndex, 1);
+      }
+
+      // ২. যদি নতুন ক্লিক করা ইমোজিটা আগেরটার সমান না হয়, তার মানে সে ইমোজি চেঞ্জ করেছে
+      if (oldReaction !== reaction) {
+        // নতুন রিঅ্যাকশনটি ডাটাবেসের ফরম্যাটে (Flat Object) পুশ করে দিলাম
+        currentReactions.push({ userId: myId, emoji: reaction });
+      }
+
+      return { ...currentMsg, reactions: currentReactions };
+    };
+
+    // ২. Zustand Store আপডেট করুন (সাথে সাথে স্ক্রিনে দেখানোর জন্য)
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m._id === msg._id ? toggleReactionLogic(m) : m,
+      ),
+    }));
+
+    // ৩. React Query Cache আপডেট করুন (যাতে স্ক্রল বা পেজিনেট করলে ডেটা হারিয়ে না যায়)
+    updateAllPagesCache(chatId, (m) =>
+      m._id === msg._id ? toggleReactionLogic(m) : m,
+    );
+
+    // ৪. ব্যাকএন্ডে (Socket) পাঠিয়ে দিন
+    socket?.emit(
+      "reaction",
+      {
+        chatId: chatId,
+        messageId: msg._id,
+        reaction: reaction,
+      },
+      (res: any) => {
+        // যদি সার্ভার থেকে error আসে, তবে চাইলে এখানে error handle করতে পারেন
+        if (res?.success === false) {
+          console.error(res.message);
+        }
+      },
+    );
   },
 
   handleNewChatIdChange: (val: string) => {
