@@ -14,7 +14,7 @@ import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
 import { secureDecryptMessage, secureEncryptMessage } from "@/helper/E2EHelper";
 import { clearTimeout } from "timers";
-import { useChatSettingsStore } from "./chatSettingsStore";
+import { ChatSettings, useChatSettingsStore } from "./chatSettingsStore";
 
 // ==========================================
 // HELPERS
@@ -33,7 +33,8 @@ const safeDecrypt = async (
 ): Promise<string> => {
   if (!isEncrypted(content)) return content;
   try {
-    return await secureDecryptMessage(content, chatId, publicKey);
+    const decrypted = await secureDecryptMessage(content, chatId, publicKey);
+    return typeof decrypted === "string" ? decrypted : decrypted.text;
   } catch {
     return "🔒 [Encrypted Message]";
   }
@@ -218,6 +219,10 @@ interface ChatStore {
   closeNewChat: () => void;
   openCtx: (e: React.MouseEvent, msg: Message, isMine: boolean) => void;
 }
+
+const getChatSettings = (chatId: string): ChatSettings => {
+  return useChatSettingsStore.getState().getSettings(chatId);
+};
 
 // ==========================================
 // STORE
@@ -791,8 +796,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
     });
   },
 
-  // get user 
-
   // ==========================================
   // SEND MESSAGE
   // ==========================================
@@ -890,7 +893,8 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       set((s) => ({ messages: [...s.messages, tempMsg], replyTo: null }));
       updateMessagesCache(chatId, (old) => [...old, tempMsg]);
 
-      
+      const disappearingDuration =
+        getChatSettings(chatId).disappearingTimer ?? undefined;
       socket?.emit(
         "send_message",
         {
@@ -899,6 +903,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           content: encryptedContent,
           replyToMessageId: replyTo?._id,
           userId: myId,
+          disappearingDuration,
         },
         (res: any) => {
           if (res?.success) {
@@ -1111,6 +1116,8 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
         chatRoomId: chatId,
         attachment: attachmentData,
         mediaType: attachmentData?.[0]?.type ?? undefined,
+        disappearingDuration:
+          getChatSettings(chatId).disappearingTimer ?? undefined,
       },
       (res: any) => {
         if (res?.success) {

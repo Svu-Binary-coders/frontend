@@ -44,10 +44,18 @@ export default function Sidebar() {
   const [tab, setTab] = useState<TabKey>("all");
   const router = useRouter();
 
+  const [openGroupModal, setOpenGroupModal] = useState(false);
+
   /*  Counts  */
   const unreadTotal = contacts.reduce((s, c) => s + (c.unreadCount ?? 0), 0);
   const pinnedTotal = contacts.filter((c) => c.isPinned).length;
   const favoritesTotal = contacts.filter((c) => c.isFavorite).length;
+
+
+  // group chat create
+  const handleCreateGroup = () => {
+    
+  }
 
   const getBadge = (key: TabKey) => {
     if (key === "unread") return unreadTotal || null;
@@ -334,7 +342,7 @@ export default function Sidebar() {
           "
         >
           <Users className="h-4 w-4" />
-          Invite Team
+          Create Group
         </Button>
       </div>
     </aside>

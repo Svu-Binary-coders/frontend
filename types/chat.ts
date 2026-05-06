@@ -19,6 +19,7 @@ export interface Contact {
   isFavorite?: boolean;
   isChatLock?: boolean;
   publicKey: string;
+  isGroup?: boolean;
 }
 export interface Attachment {
   url: string;
