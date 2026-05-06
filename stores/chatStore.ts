@@ -781,7 +781,6 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       ),
     });
 
-    // 🌟 2. Notun chat room a join koro
     if (contact.customChatId) {
       socket?.emit("join_chat", contact.customChatId);
     }
@@ -791,6 +790,8 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
       senderId: contact._id,
     });
   },
+
+  // get user 
 
   // ==========================================
   // SEND MESSAGE
