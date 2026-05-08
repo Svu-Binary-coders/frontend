@@ -34,7 +34,7 @@ export const useContacts = (userId: string) => {
       return data.contacts;
     },
     enabled: !!userId,
-    staleTime: 1000 * 60 * 60, // 1 hour
+    staleTime: 5 * 60 * 1000, // 5 minutes
     meta: { persist: true },
   });
 
@@ -48,7 +48,7 @@ export const useContacts = (userId: string) => {
           if (!c.lastMessage || typeof c.lastMessage.content !== "string") {
             return c;
           }
-
+ if (c.isGroupChat) return c;
           const content = c.lastMessage.content;
           if (!isEncrypted(content)) return c;
 

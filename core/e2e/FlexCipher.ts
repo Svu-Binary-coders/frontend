@@ -6,6 +6,7 @@
 //
 // Signature covers: timestamp + ":" + iv + ":" + ciphertext
 
+
 import {
   FCPVersion,
   FCPFlags,

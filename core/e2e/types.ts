@@ -5,6 +5,7 @@ export enum FCPVersion {
   V4 = "v4", // + Padding     — all messages padded to 1024 bytes (traffic analysis resistance)
 }
 
+
 //  Bitwise Flag constants
 // Usage: flags = FCPFlags.BURN | FCPFlags.BLUR  →  flags = 0b10001000 = 136
 export const FCPFlags = {

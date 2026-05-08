@@ -257,6 +257,7 @@ export class KeyManager {
     return { identity, privateKey, signingKey };
   }
 
+  
   //  Minimal IndexedDB wrapper
   private static _db: IDBDatabase | null = null;
 

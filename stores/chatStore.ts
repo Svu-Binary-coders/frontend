@@ -13,7 +13,6 @@ import { getQueryClient } from "@/lib/queryClient";
 import { useAuthStore } from "@/stores/authStore";
 import api from "@/lib/axios";
 import { secureDecryptMessage, secureEncryptMessage } from "@/helper/E2EHelper";
-import { clearTimeout } from "timers";
 import { ChatSettings, useChatSettingsStore } from "./chatSettingsStore";
 
 // ==========================================
@@ -1289,7 +1288,7 @@ export const useChatStore = create<ChatStore>()((set, get) => ({
           customChatId: data.chat.chatRoomId,
           unreadCount: 0,
           isOnline: false,
-          publicKey: data.chat.publicKey,
+          publicKey: data.publicKey,
         };
         set((s) => ({
           contacts: s.contacts.find((c) => c._id === nc._id)

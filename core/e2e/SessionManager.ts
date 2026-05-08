@@ -5,6 +5,7 @@ function b64d(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
+
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(
     await subtle().digest("SHA-256", data as unknown as BufferSource),

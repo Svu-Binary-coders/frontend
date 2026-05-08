@@ -5,6 +5,7 @@
 import { FlexCipher, PackOptions } from "./FlexCipher";
 import { FCPFlags, FCPVersion, hasFlag } from "./types";
 
+
 //  encryptMessage params
 export interface EncryptMessageParams {
   text: string;
